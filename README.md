@@ -1,2 +1,2 @@
-# nba_l2m
-Analysis of Last Two Minute reports
+# nba_foul-analysis
+Analysis of the effect of fouls on shot taking in the NBA.
