@@ -1,0 +1,26 @@
+{
+    "id": "795E2FB6",
+    "path": "~/Documents/GitHub/nba_foul-analysis/04_generative-model/generate_foul-analysis.qmd",
+    "project_path": "04_generative-model/generate_foul-analysis.qmd",
+    "type": "quarto_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1744224560239.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "122,0",
+        "scrollLine": "124"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1744239099,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1744239099,
+    "read_only": false,
+    "read_only_alternatives": []
+}

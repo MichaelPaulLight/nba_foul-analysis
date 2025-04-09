@@ -3,7 +3,7 @@
     "path": "~/Documents/GitHub/nba_foul-analysis/03_causal-model/causal-model.qmd",
     "project_path": "03_causal-model/causal-model.qmd",
     "type": "quarto_markdown",
-    "hash": "1906552564",
+    "hash": "0",
     "contents": "",
     "dirty": false,
     "created": 1744222057857.0,
@@ -12,15 +12,15 @@
     "properties": {
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "90,72",
-        "scrollLine": "75"
+        "cursorPosition": "129,48",
+        "scrollLine": "108"
     },
     "folds": "",
-    "lastKnownWriteTime": 1744224390,
+    "lastKnownWriteTime": 1744225178,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1744224390020,
+    "last_content_update": 1744225178905,
     "read_only": false,
     "read_only_alternatives": []
 }

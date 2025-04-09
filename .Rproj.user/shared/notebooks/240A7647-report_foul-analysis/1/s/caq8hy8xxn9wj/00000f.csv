@@ -1,0 +1,25 @@
+"0","#| warning: false"
+"0","#| output: true"
+"0","library(googlesheets4)"
+"0","library(gt)"
+"2","Registered S3 methods overwritten by 'htmltools':
+  method               from         
+  print.html           tools:rstudio
+  print.shiny.tag      tools:rstudio
+  print.shiny.tag.list tools:rstudio
+"
+"0","timeline <- read_sheet(""https://docs.google.com/spreadsheets/d/1-yxScU8IQDm0yY-b2s7P6D_-Z3uH5F8GrPLc_FQrKNs/edit?gid=0#gid=0"")"
+"1","[38;5;232mThe [34mgooglesheets4[38;5;232m package is requesting access to your Google account.
+Enter '1' to start a new auth process or select a pre-authorized account.
+[1m1[22m: Send me to the browser for a new auth process.
+[1m2[22m: michaelpaullight@gmail.com[39m
+"
+"0","2"
+"2","Auto-refreshing stale OAuth token.
+"
+"1","[32m✔[39m Reading from [36mtimeline_independent-study[39m.
+"
+"1","[32m✔[39m Range [33mSheet1[39m.
+"
+"0","timeline |> gt() |> "
+"0","    fmt_date(columns = date, date_style = ""wd_m_day_year"")"

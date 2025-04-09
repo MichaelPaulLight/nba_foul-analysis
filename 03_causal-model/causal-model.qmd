@@ -6,6 +6,7 @@
 library(tidyverse)
 library(ggdag)
 library(dagitty)
+library(hoopR)
 ```
 
 ```{r}
@@ -90,7 +91,42 @@ ggdag_status(least_simple_dag) +
   scale_y_continuous(expand = expansion(mult = 0.2))  +
   ggtitle("Causal Model of Perceived Foul Risk's Effect on Shot Taking")
 
+```
 
+```{r}
+player_logs <- nba_leaguegamelog(season = "2024-25", player_or_team = "P") %>%
+  pluck("LeagueGameLog") %>%
+  clean_names() %>%
+  mutate(team_location = ifelse(str_detect(matchup, "\\@"), "away", "home"),
+         across(c(player_id, team_id), as.numeric))
 
+first_date <- player_logs %>%
+  distinct(game_date) %>%
+  arrange(game_date) |> 
+  head(1)
+
+shot_df <- nba_shotchartdetail(
+  context_measure = "FGA",
+  date_from = first_date$game_date,
+  date_to = Sys.Date() - 1,
+  game_id = "",
+  game_segment = "",
+  last_n_games = 0,
+  league_id = "00",
+  location = "",
+  month = 0,
+  opponent_team_id = 0,
+  outcome = "",
+  period = 0,
+  player_id = 0,
+  player_position = "",
+  rookie_year = "",
+  season = year_to_season(most_recent_nba_season() - 1),
+  season_segment = "",
+  season_type = "Regular Season",
+  team_id = 0,
+  vs_conference = "",
+  vs_division = ""
+) |> pluck("Shot_Chart_Detail") |> clean_names()
 ```
 

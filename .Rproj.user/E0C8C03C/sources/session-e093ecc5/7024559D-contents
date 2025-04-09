@@ -1,0 +1,1515 @@
+---
+title: "defender-state-space-modeling"
+format: html
+editor: visual
+---
+
+```{r}
+library(hoopR)
+library(tidyverse)
+library(nanoparquet)
+library(janitor)
+library(zoo)
+```
+
+```{r}
+player_logs <- nba_leaguegamelog(season = "2024-25", player_or_team = "P") %>%
+  pluck("LeagueGameLog") %>%
+  clean_names() %>%
+  mutate(team_location = ifelse(str_detect(matchup, "\\@"), "away", "home"),
+         across(c(player_id, team_id), as.numeric))
+
+pbp_df <- read_parquet("../data/250225_pbp_gt.parquet")
+```
+
+```{r}
+# adding foul information to the pbp data
+pbp_df <- (pbp_df
+ |> mutate(fouling_player = case_when(str_detect(description, regex("foul:", ignore_case = T)) ~ player1), .default = NA)
+ |> mutate(fouled_player = case_when(str_detect(description, regex("foul:", ignore_case = T)) ~ player3), .default = NA)
+ |> mutate(personal_fouls_after_event = case_when(!is.na(fouling_player) ~ str_extract(description, regex("\\([^()]*\\)(?![^()]*\\))"))))
+ |> mutate(personal_fouls_after_event = str_extract(personal_fouls_after_event, regex("\\d+")))
+)
+
+
+```
+
+```{r}
+
+# this dataframe is only shots
+pbp_df_by_defender <- (
+  pbp_df 
+  |> group_by(game_id, slug_team)
+  |> mutate(stint_home = ifelse(slug_team == team_home, cumsum(msg_type == 8) + 1, NA),
+         stint_away = ifelse(slug_team == team_away, cumsum(msg_type == 8) + 1, NA)) 
+  |> group_by(game_id) 
+  |> mutate(across(starts_with("stint"), ~ na.locf0(., fromLast = TRUE)),
+         across(starts_with("stint"), ~ na.locf(.))) 
+  |> ungroup() 
+  |> pivot_longer(cols = starts_with("lineup"),
+               names_to = "lineup_location",
+               values_to = "lineup",
+               names_prefix = "lineup_")
+  |> mutate(pts_team = ifelse(lineup_location == "home", shot_pts_home, shot_pts_away),
+         pts_opp = ifelse(lineup_location == "away", shot_pts_home, shot_pts_away),
+         poss_team = ifelse(lineup_location == "home", poss_home, poss_away),
+         poss_opp = ifelse(lineup_location == "away", poss_home, poss_away),
+         slug_team = ifelse(lineup_location == "home", team_home, team_away),
+         slug_opp = ifelse(lineup_location == "away", team_home, team_away),
+         stint = ifelse(lineup_location == "home", stint_home, stint_away))
+  |> filter(off_slug_team != slug_team)
+  |> separate_longer_delim(cols = lineup, delim = ", ")
+  |> rename(player_name = lineup)
+  |> mutate(personal_fouls_after_event = case_when(fouling_player == player_name ~ personal_fouls_after_event, .default = NA))
+  |> mutate(personal_fouls_after_event = as.numeric(personal_fouls_after_event))
+  |> group_by(game_id, slug_team, player_name)
+  |> fill(personal_fouls_after_event)
+  |> ungroup()
+  |> mutate(personal_fouls_after_event = ifelse(is.na(personal_fouls_after_event), 0, personal_fouls_after_event))
+  |> group_by(game_id, slug_team, player_name)
+  |> mutate(
+    personal_fouls_during_event = case_when(
+      fouling_player == player_name ~ personal_fouls_after_event - 1,
+      TRUE ~ personal_fouls_after_event
+    )
+  )
+  |> ungroup()
+)
+```
+
+```{r}
+# this dataframe is only possessions that ended in a shot, with each defender on the floor for each posession 
+
+shot_pbp_by_defense <- (pbp_df_by_defender 
+                        |> filter(str_detect(description, regex("shot", ignore_case = T)) & !str_detect(description, regex("clock", ignore_case = T)))
+                        |> mutate(shot_type = case_when(str_detect(description, "3pt") ~ "3pt",
+                              TRUE ~ "2pt"))
+                        |> rename(known_defender = player3)
+)  
+
+# this dataframe # this dataframe is only possessions that ended in a shot or steal, with each defender on the floor for each posession 
+
+shot_and_steal_pbp_by_defense <- (pbp_df_by_defender
+                                  |> filter(str_detect(description, regex("shot", ignore_case = T)) & !str_detect(description, regex("clock", ignore_case = T)) | str_detect(description, regex("steal", ignore_case = T)))
+                                  |> mutate(shot_type = case_when(str_detect(description, "3pt") ~ "3pt",
+                              TRUE ~ "2pt"))
+                              |> rename(known_defender = player3)
+)  
+
+```
+
+```{r}
+# defining a function to pull the team roster for each team in the league
+# allows use to get player heights and positions
+
+function_team_stats <- function(x) {
+  tryCatch({
+    # small delay to avoid rate limiting
+    Sys.sleep(0.5)
+    
+    # gets the current season
+    current_season <- "2024-25"
+    
+    roster <- nba_commonteamroster(
+      team_id = x,
+      season = current_season
+    )
+    
+    # transforms the result into a data frame with required columns
+    result <- roster$CommonTeamRoster |>
+      mutate(
+        league_id = "00",
+        season = current_season,
+        team_id = x
+      )
+    
+    return(result)
+  }, error = function(e) {
+    warning(sprintf("Error processing team_id %s: %s", x, e$message))
+    return(NULL)
+  })
+}
+
+teams <- player_logs |> distinct(team_id) |> pull(team_id)
+
+team_stats <- map_df(teams, function_team_stats, .progress = TRUE)
+
+# selecting the columns we care about
+# small data cleaning tasks
+
+team_stats <- (team_stats 
+               |> clean_names()
+               |> select(team_id, player_id, position, height, weight, age, exp)
+               |> mutate(experience = case_when(exp == "R" ~ 0, TRUE ~ as.numeric(exp)))
+               |> mutate(player_id = as.numeric(player_id))
+               |> mutate(team_id = as.numeric(team_id))
+)
+
+write_parquet(team_stats, "../data/250227_rosters.parquet")
+
+
+```
+
+```{r}
+# here we're joining the player logs to the team_stats dataframe in order to incorporate position and anthropometric data into the player_logs
+
+
+# shots/pbp dataframe in order to get the ids for the offenders, defenders, and assisters for each offensive play that resulted in a shot
+
+player_logs_for_join <- (
+  player_logs
+  |> select(player_name, player_id, team_id, team_abbreviation, game_id)
+  |> ungroup()
+  |> rename(slug_team = team_abbreviation)
+  |> mutate(game_id = as.numeric(game_id))
+)
+
+shot_pbp_by_defense <- (shot_pbp_by_defense
+  |> left_join(player_logs_for_join, by = join_by("player_name", "slug_team", "game_id"))
+  |> rename(defender_name = player_name,
+            defender_id = player_id,
+            player_name = player1)
+  |> left_join(player_logs_for_join, by = join_by("player_name", "game_id"))
+  |> rename(offender_id = player_id,
+            offender_name = player_name,
+            player_name = player2)
+  |> left_join(player_logs_for_join, by = join_by("player_name", "game_id"))
+  |> rename(assister_id = player_id,
+            assister_name = player_name)
+)    
+
+shot_pbp_by_defense <- (shot_pbp_by_defense 
+                               |> left_join(team_stats, by = join_by("defender_id" == "player_id"))
+                               )
+
+# ~30 players lack position and anthropometric data
+# these are players who were on rosters and played in games earlier in the season, but are no longer rostered 
+# we'll proceed by filtering these players out of our sample
+
+no_anthro_players <- shot_pbp_by_defense |> filter(is.na(height)) |> select(defender_id) |> distinct()
+
+shot_and_steal_pbp_by_defense <- (shot_and_steal_pbp_by_defense
+  |> left_join(player_logs_for_join, by = join_by("player_name", "slug_team", "game_id"))
+  |> rename(defender_name = player_name,
+            defender_id = player_id,
+            player_name = player1)
+  |> left_join(player_logs_for_join, by = join_by("player_name", "game_id"))
+  |> rename(offender_id = player_id,
+            offender_name = player_name,
+            player_name = player2)
+  |> left_join(player_logs_for_join, by = join_by("player_name", "game_id"))
+  |> rename(assister_id = player_id,
+            assister_name = player_name)
+)    
+```
+
+```{r}
+
+# very weirdly a few games from 11-17 don't have overall fga or fgm stats
+# further investigation found a quality issue in the NBA's data for that day
+# we'll filter these games out of our sample
+
+defender_dashboard <- nanoparquet::read_parquet("../data/defender_dashboard.parquet")
+
+defender_dashboard <- (
+  defender_dashboard
+  |> rename(defender_id = CLOSE_DEF_playerId)
+  |> filter(G == 1) # G == 1 is a bit of an artifact from the data collection process; filtering for it makes sure given stats correctly correspond to given games
+  |> clean_names()
+  |> distinct()
+)
+
+defender_dashboard <- defender_dashboard |>
+  filter(date != "2024-11-17")
+
+closest_defender_dashboard <- nanoparquet::read_parquet("../data/closest_defender_shooting_dashboard.parquet")
+
+closest_defender_dashboard <- (
+  closest_defender_dashboard
+  |> clean_names()
+  |> rename(offender_id = player_id)
+  |> filter(g == 1) # g == 1 is a bit of an artifact from the data collection process; filtering for it makes sure given stats correctly correspond to given games
+  |> distinct()
+)
+
+closest_defender_dashboard_10_plus <- nanoparquet::read_parquet("../data/closest_defender_shooting_dash_10_plus.parquet")
+
+closest_defender_dashboard_10_plus <- (
+  closest_defender_dashboard_10_plus
+  |> clean_names()
+  |> rename(offender_id = player_id)
+  |> filter(g == 1) # g == 1 is a bit of an artifact from the data collection process; filtering for it makes sure given stats correctly correspond to given games
+  |> distinct()
+)
+```
+
+```{r}
+# Filter and rename columns for shots 10+ feet from defender
+# Append "_10_plus" to field goal attempt/made columns so that it's possible to differentiate after the following join
+closest_defender_dashboard_10_plus <- (closest_defender_dashboard_10_plus 
+  |> select(date, period, offender_id, close_def_dist_range, fgm, fga, fg2m, fg2a, fg3m, fg3a)
+  |> rename_with(
+    ~ paste0(.x, "_10_plus"),
+    starts_with("f")
+  )
+) 
+
+# Join the full closest_defender_dashboard with the exclusive 10+ feet data
+# Convert all field goal columns to numeric
+closest_defender_dashboard <- (closest_defender_dashboard
+  |> select(date, period, offender_id, close_def_dist_range, fgm, fga, fg2m, fg2a, fg3m, fg3a) 
+  |> left_join(closest_defender_dashboard_10_plus, 
+               by = join_by("date", "period", "offender_id", "close_def_dist_range"))
+  |> mutate(across(fgm:fg3a_10_plus, ~ as.numeric(.)))
+)
+
+# Replace all NA values with 0
+closest_defender_dashboard <- (closest_defender_dashboard
+  |> mutate(across(everything(), ~replace_na(., 0)))
+)
+
+# I'm thinking about shot type as a function of distance-from-basket, so I use 2pt and 3pt categorization to infer shot distance in the closest_defender_dashboard and defender dashboard up ahead
+# Calculate shots from different distances:
+# - 0 to 10 feet (difference between total and 10+ feet)
+# - 10 to 24 feet (2-point shots 10+ feet)
+# - 24+ feet (3-point shots 10+ feet)
+closest_defender_dashboard <- (closest_defender_dashboard
+  |> mutate(o_fga_0_through_9_ft = fg2a - fg2a_10_plus,
+            o_fgm_0_through_9_ft = fg2m - fg2m_10_plus)
+  |> rename(o_fga_10_through_23_ft = fg2a_10_plus,
+            o_fgm_10_through_23_ft = fg2m_10_plus,
+            o_fga_24_plus = fg3a_10_plus,
+            o_fgm_24_plus = fg3m_10_plus)
+  |> select(-starts_with("fg"), -starts_with("fg"))
+)
+
+# Reshape data:
+# 1. First pivot longer to separate shot distance ranges
+# 2. Then pivot wider to separate field goals attempted (fga) and made (fgm)
+closest_defender_dashboard <- (closest_defender_dashboard
+  |> pivot_longer(
+    cols = starts_with("o_"),
+    names_to = c("stat_type", "offender_shot_dist_range"),
+    names_pattern = "o_(fg[am])_(.+)",
+    values_to = "value"
+  ) 
+  |> pivot_wider(
+    names_from = stat_type,
+    values_from = value
+  )
+  |> rename(offender_fga = fga, offender_fgm = fgm)
+  |> mutate(game_date = as_date(date),
+            offender_id = as.numeric(offender_id))
+  |> select(-date)
+)
+
+
+```
+
+```{r}
+# Initial data preparation:
+# - Select relevant columns for analysis
+# - Convert field goal attempts and makes to numeric
+# - Reshape data to have separate columns for each defense category
+# - Clean column names to ensure consistency
+defender_dashboard <- (defender_dashboard 
+  |> select(date, period, defender_id, defense_category, d_fga, d_fgm) 
+  |> mutate(d_fga = as.numeric(d_fga), d_fgm = as.numeric(d_fgm)) 
+  |> pivot_wider(names_from = defense_category, 
+                values_from = c(d_fgm, d_fga), 
+                values_fill = 0)
+  |> clean_names()
+)
+
+# Calculate detailed shot distance breakdowns:
+# - Break down overlapping categories into specific distance ranges
+# - Add verification columns to ensure data consistency
+# This is necessary because the original data has overlapping categories
+# (e.g., "less_than_10_ft" includes "less_than_6_ft")
+defender_dashboard <- (defender_dashboard
+  # Calculate 15-24 ft shots (greater than 15 ft minus 3-pointers)
+  |> mutate(d_fga_16_through_23_ft = d_fga_greater_than_15_ft - d_fga_3_pointers,
+            d_fgm_16_through_23_ft = d_fgm_greater_than_15_ft - d_fgm_3_pointers,
+            # Calculate 6-10 ft shots
+            d_fga_6_through_9_ft = d_fga_less_than_10_ft - d_fga_less_than_6_ft,
+            d_fgm_6_through_9_ft = d_fgm_less_than_10_ft - d_fgm_less_than_6_ft,
+            # Calculate 10-15 ft shots as remainder of 2-pointers
+            d_fga_10_through_15_ft = d_fga_2_pointers - (d_fga_less_than_6_ft + d_fga_6_through_9_ft + d_fga_16_through_23_ft),
+            d_fgm_10_through_15_ft = d_fgm_2_pointers - (d_fgm_less_than_6_ft + d_fgm_6_through_9_ft + d_fgm_16_through_23_ft),
+            # Calculate 24+ ft shots (3-pointers)
+            d_fga_24_plus = d_fga_greater_than_15_ft - d_fga_16_through_23_ft,
+            d_fgm_24_plus = d_fgm_greater_than_15_ft - d_fgm_16_through_23_ft,
+            # Add verification columns to ensure calculations are correct
+            fga_2_pt_check = d_fga_2_pointers - (d_fga_less_than_6_ft + d_fga_6_through_9_ft + d_fga_10_through_15_ft + d_fga_16_through_23_ft),
+            fgm_2_pt_check = d_fgm_2_pointers - (d_fgm_less_than_6_ft + d_fgm_6_through_9_ft + d_fgm_10_through_15_ft + d_fgm_16_through_23_ft),
+            fga_3_pt_check = d_fga_3_pointers - d_fga_24_plus,
+            fgm_3_pt_check = d_fgm_3_pointers - d_fgm_24_plus,
+            fga_overall_check = d_fga_overall - (d_fga_less_than_6_ft + d_fga_6_through_9_ft + d_fga_10_through_15_ft + d_fga_16_through_23_ft + d_fga_24_plus),
+            fgm_overall_check = d_fgm_overall - (d_fgm_less_than_6_ft + d_fgm_6_through_9_ft + d_fgm_10_through_15_ft + d_fgm_16_through_23_ft + d_fgm_24_plus)))
+
+# Verify calculations by checking if all sums equal zero
+# If they do, our breakdowns are mathematically consistent
+defender_dashboard |> summarise(
+  sum(fga_2_pt_check),
+  sum(fgm_2_pt_check),
+  sum(fga_3_pt_check),
+  sum(fgm_3_pt_check),
+  sum(fga_overall_check),
+  sum(fgm_overall_check)
+)
+
+# Final data reshaping:
+# - Remove verification columns
+# - Reshape data for analysis by:
+#   1. Converting to long format to separate shot distances
+#   2. Converting back to wide format to separate attempts/makes
+# - Filter to keep only the five main distance ranges we calculated
+defender_dashboard <- (defender_dashboard |> select(-starts_with("fga_"), -starts_with("fgm_"))
+  |> pivot_longer(
+    cols = starts_with("d_"),
+    names_to = c("stat_type", "defender_shot_dist_range"),
+    names_pattern = "d_(fg[am])_(.+)",
+    values_to = "value"
+  ) 
+  |> pivot_wider(
+    names_from = stat_type,
+    values_from = value
+  )
+  |> filter(defender_shot_dist_range == "less_than_6_ft" | 
+            defender_shot_dist_range == "6_through_9_ft" | 
+            defender_shot_dist_range == "10_through_15_ft" | 
+            defender_shot_dist_range == "16_through_23_ft" | 
+            defender_shot_dist_range == "24_plus")
+  |> rename(defender_fga = fga, defender_fgm = fgm)
+  |> mutate(game_date = as_date(date),
+            defender_id = as.numeric(defender_id))
+  |> select(-date)
+)
+
+```
+
+```{r}
+first_date <- player_logs %>%
+  distinct(game_date) %>%
+  arrange(game_date) |> 
+  head(1)
+
+shot_df <- nba_shotchartdetail(
+  context_measure = "FGA",
+  date_from = first_date$game_date,
+  date_to = Sys.Date() - 1,
+  game_id = "",
+  game_segment = "",
+  last_n_games = 0,
+  league_id = "00",
+  location = "",
+  month = 0,
+  opponent_team_id = 0,
+  outcome = "",
+  period = 0,
+  player_id = 0,
+  player_position = "",
+  rookie_year = "",
+  season = year_to_season(most_recent_nba_season() - 1),
+  season_segment = "",
+  season_type = "Regular Season",
+  team_id = 0,
+  vs_conference = "",
+  vs_division = ""
+) |> pluck("Shot_Chart_Detail") |> clean_names()
+
+
+```
+
+```{r}
+
+# Clean and format shot_df dataframe
+shot_df <- shot_df |> 
+  mutate(
+    game_id = as.numeric(game_id),
+    period = as.numeric(period), 
+    game_date = as_date(game_date),
+    number_original = as.numeric(game_event_id),
+    shot_distance = as.numeric(shot_distance)
+  ) |>
+  select(-shot_type) |>
+  # Add shot distance categories
+  mutate(
+    # Categorize shots for offensive analysis
+    offender_shot_dist_range = case_when(
+      shot_distance < 10 ~ "0_through_9_ft",
+      shot_distance >= 10 & shot_distance < 24 ~ "10_through_23_ft", 
+      TRUE ~ "24_plus"
+    ),
+    # Categorize shots for defensive analysis
+    defender_shot_dist_range = case_when(
+      shot_distance < 6 ~ "less_than_6_ft",
+      shot_distance >= 6 & shot_distance < 10 ~ "6_through_9_ft",
+      shot_distance >= 10 & shot_distance <= 15 ~ "10_through_15_ft",
+      shot_distance > 15 & shot_distance < 24 ~ "16_through_23_ft",
+      TRUE ~ "24_plus"
+    )
+  )
+
+# Join with defender data and create base dataset
+shot_df_test <- shot_df |>
+  left_join(
+    shot_pbp_by_defense, 
+    by = join_by("game_id", "number_original", "period", "game_date")
+  ) |>
+  select(
+    # Game info
+    game_date, game_id, slug_team.x, slug_opp, period, number_original,
+    # Play details  
+    clock, offender_name, offender_id, assister_name, assister_id,
+    known_defender, locX, locY, defender_name, defender_id,
+    possession, minutes_remaining, seconds_remaining,
+    # Shot details
+    event_type, action_type, shot_zone_basic, shot_zone_area, shot_zone_range,
+    shot_distance, shot_attempted_flag, shot_made_flag, shot_type,
+    offender_shot_dist_range, defender_shot_dist_range,
+    # Player attributes
+    position, height, weight, age, experience,
+    personal_fouls_during_event, garbage_time
+  ) |>
+  rename(
+    slug_team_def = slug_team.x,
+    slug_team_off = slug_opp
+  ) |>
+  # Remove garbage time plays
+  filter(garbage_time == 0)
+
+# Analyze missing data patterns
+missing_data_by_game <- shot_df_test |>
+  left_join(
+    closest_defender_dashboard,
+    by = join_by("game_date", "period", "offender_id", "offender_shot_dist_range")
+  ) |>
+  mutate(has_close_def_data = !is.na(close_def_dist_range)) |>
+  group_by(game_id) |>
+  summarize(
+    total_shots = n(),
+    missing_data_shots = sum(!has_close_def_data),
+    pct_missing = missing_data_shots / total_shots * 100
+  ) |>
+  arrange(desc(pct_missing))
+
+# Identify games with any missing data
+games_with_any_missing <- missing_data_by_game |>
+  filter(missing_data_shots > 0) |>
+  pull(game_id)
+
+write_parquet(missing_data_by_game, "../data/missing_data_by_game.parquet")
+
+# Create clean dataset by removing all games with any missing data
+
+# The way to interpret this data frame is "the number of shots taken and made at a given distance from the basket by a given member of a given team who could have been guarded by a defender of a given position with a given number of fouls at the time of the shot" 
+
+shots_with_closest_defender_and_foul_data_by_shot <- shot_df_test |>
+  # Remove all games with any missing data
+  filter(!(game_id %in% games_with_any_missing)) |>
+  # Join with closest defender dashboard
+  left_join(
+    closest_defender_dashboard,
+    by = join_by("game_date", "period", "offender_id", "offender_shot_dist_range")
+  ) |>
+  # Handle any remaining missing values
+  mutate(
+    across(ends_with("fgm"), ~replace_na(., 0)),
+    across(ends_with("fga"), ~replace_na(., 0))
+  ) |>
+  # Group and summarize
+  group_by(
+    # Game context
+    game_date, game_id, period,
+    # Team information
+    shooting_team = slug_team_off, 
+    defending_team = slug_team_def,
+    # Player matchup
+    shooter = offender_name, 
+    defender = defender_name,
+    # Shot characteristics
+    shot_distance_category = offender_shot_dist_range, 
+    defender_proximity = close_def_dist_range,
+    # Defender attributes
+    defender_position = position, 
+    defender_height = height, 
+    defender_weight = weight, 
+    defender_foul_count = personal_fouls_during_event
+  ) |>
+  summarize(
+    # Shot outcomes
+    shots_attempted = sum(offender_fga),
+    shots_made = sum(offender_fgm),
+    # Keep any other metrics that end with fgm/fga
+    across(ends_with("fgm") & !matches("^offender_fgm$"), sum),
+    across(ends_with("fga") & !matches("^offender_fga$"), sum),
+    .groups = 'drop'
+  )
+
+# The way to interpret this data frame is "the number of shots guarded by a given defender playing a given position with a given number of fouls at a given distance from the basket that could have been shot by a given member of the opposing team" 
+
+shots_defended_with_distance_and_foul_data <- shot_df_test |>
+  # Remove all games with any missing data
+  filter(!(game_id %in% games_with_any_missing)) |>
+  # Join with defender dashboard
+  left_join(
+    defender_dashboard,
+    by = join_by("game_date", "period", "defender_id", "defender_shot_dist_range")
+  ) |>
+  # Handle any remaining missing values
+  mutate(
+    across(ends_with("fgm"), ~replace_na(., 0)),
+    across(ends_with("fga"), ~replace_na(., 0))
+  ) |>
+  # Group and summarize
+  group_by(
+    # Game context
+    game_date, game_id, period,
+    # Team information
+    offensive_team = slug_team_off,
+    defensive_team = slug_team_def,
+    # Player matchup
+    shooter = offender_name,
+    primary_defender = defender_name,
+    # Defensive context
+    defense_distance_category = defender_shot_dist_range,
+    # Defender attributes
+    defender_position = position,
+    defender_height = height,
+    defender_weight = weight,
+    defender_foul_count = personal_fouls_during_event
+  ) |>
+  summarize(
+    # Shot outcomes from defender perspective
+    shots_defended_total = sum(defender_fga),
+    shots_defended_made = sum(defender_fgm),
+    # Keep any other metrics that end with fgm/fga
+    across(ends_with("fgm") & !matches("^defender_fgm$"), sum),
+    across(ends_with("fga") & !matches("^defender_fga$"), sum),
+    .groups = 'drop'
+  )
+
+# Calculate summary statistics for the clean dataset
+closest_defender_stats <- shots_with_closest_defender_and_foul_data_by_shot |>
+  summarize(
+    num_records = n(),
+    num_games = n_distinct(game_id),
+    num_players = n_distinct(c(shooter, defender)),
+    total_shots = sum(shots_attempted),
+    avg_fg_pct = sum(shots_made) / sum(shots_attempted) * 100
+  )
+
+print("Closest defender dataset statistics (all games with any missing data removed):")
+print(closest_defender_stats)
+
+defender_stats <- shots_defended_with_distance_and_foul_data |>
+  summarize(
+    num_records = n(),
+    num_games = n_distinct(game_id),
+    num_players = n_distinct(c(shooter, primary_defender)),
+    total_shots = sum(shots_defended_total),
+    avg_fg_pct = sum(shots_defended_made) / sum(shots_defended_total) * 100
+  )
+
+print("Defender distance from basket dataset statistics (all games with any missing data removed):")
+print(defender_stats)
+
+# Create team-level aggregation
+# The way to interpret this data frame is "the number of shots taken and made at a given distance from the basket by any member of a given team who could have been guarded by a defender of a given position with a given number of fouls at the time of the shot" 
+
+# This is a bit of a mouthful, but it's the most detailed way to describe the data
+
+team_defense_by_distance_foul_and_position <- shots_with_closest_defender_and_foul_data_by_shot |>
+  group_by(
+    defending_team, period,
+    shot_distance_category, defender_proximity,
+    defender_position, defender_foul_count
+  ) |>
+  summarize(
+    across(c(shots_made, shots_attempted), sum),
+    .groups = 'drop'
+  ) |>
+  # Scale fouls for modeling
+  mutate(
+    fouls_scaled = as.vector(scale(defender_foul_count))
+  )
+
+nanoparquet::write_parquet(
+  shots_with_closest_defender_and_foul_data_by_shot,
+  "../data/shots_offensive_perspective.parquet"
+)
+
+nanoparquet::write_parquet(
+  shots_defended_with_distance_and_foul_data,
+  "../data/shots_defensive_perspective.parquet"
+)  
+
+# Create non-aggregated test dataset for detailed analysis
+non_aggregated_data <- shot_df_test |>
+  # Only include games with complete data
+  filter(!(game_id %in% games_with_any_missing)) |>
+  left_join(
+    defender_dashboard,
+    by = join_by("game_date", "period", "defender_id", "defender_shot_dist_range")
+  ) |>
+  left_join(
+    closest_defender_dashboard,
+    by = join_by("game_date", "period", "offender_id", "offender_shot_dist_range")
+  ) |>
+  mutate(
+    across(ends_with("fgm"), ~replace_na(., 0)),
+    across(ends_with("fga"), ~replace_na(., 0)),
+    shot_made_flag = as.numeric(shot_made_flag)
+  ) |>
+  select(
+    game_date:number_original,
+    offender_name, defender_name,
+    action_type:shot_zone_area,
+    shot_distance, shot_made_flag, shot_type,
+    offender_shot_dist_range:defender_shot_dist_range,
+    close_def_dist_range,
+    offender_fga, offender_fgm, defender_fga, defender_fgm,
+    position, height, weight, personal_fouls_during_event
+  )
+
+# Rename columns in non_aggregated_data for clarity
+shot_level_defender_matchup_data <- non_aggregated_data |>
+  rename(
+    # Game context
+    game_date = game_date,
+    game_id = game_id,
+    period = period,
+    play_number = number_original,
+    
+    # Player matchup
+    shooter = offender_name,
+    primary_defender = defender_name,
+
+    # Shot details
+    shot_action = action_type,
+    shot_zone = shot_zone_basic,
+    shot_area = shot_zone_area,
+    shot_distance_ft = shot_distance,
+    shot_made = shot_made_flag,
+    shot_type = shot_type,
+    shot_distance_category = offender_shot_dist_range,
+    defense_distance_category = defender_shot_dist_range,
+    defender_proximity = close_def_dist_range,
+    
+    # Aggregated metrics (kept for reference)
+    shooter_fga = offender_fga,
+    shooter_fgm = offender_fgm,
+    defender_fga = defender_fga,
+    defender_fgm = defender_fgm,
+    
+    # Defender attributes
+    defender_position = position,
+    defender_height_in = height,
+    defender_weight_lb = weight,
+    defender_foul_count = personal_fouls_during_event
+  )
+
+# Save as parquet file with informative name
+nanoparquet::write_parquet(
+  shot_level_defender_matchup_data,
+  "../data/shot_level_defender_matchup_data.parquet"
+)
+```
+
+Brief example illustrating motivation for using the closest defender shooting data to infer which specific shots were defended at which level of intensity:
+
+Looking at the 11-12 game between the Hawks and Celtics, and our favorite player Caché 'sacher, in the first period, Risacher takes seven total shots, 1 very tightly contested, 5 tightly contested, and 1 open shot. He only takes two of them from a distance greater than 10 feet from the basket, one three and the other a 2, one of which guarded at 2-4 feet and the other at 4-6 feet. If we look at risacher_shots_p1, the three was taken from 26-feet and blocked by Tatum; the other was a 12-foot Floating Jump Shot, which he missed. While it at first seems more that a defender guarding a shooter at 2-4 feet would be likelier to block a shot than one at 4-6 feet, when we look at the game tape, Risacher gets into his shooting motion when Tatum is 4-6 feet away; he gets into the shooting motion for the 12-footer while Al Horfard closes in to contest up close with an outstretched arm.
+
+Who cares? Why do we care? We care because now we know that the relationship between blocks and contesting defender distances might not be so intuitive. This is in part an artifact of the measurement process, which seems to record shot and closest defender data at the time the shooter enters their shooting motion, not when the ball is actually released.
+
+This also means we can't use information about blocked shots to infer closest defender position, which is a bummer.
+
+```{r}
+
+risacher_closest_def_10_plus_p1 <- closest_defender_dashboard_10_plus |> filter(offender_id == "1642258" & date == "2024-11-12" & period == 1)
+
+risacher_shots_p1 <- shot_df |> filter(player_name == "Zaccharie Risacher" & game_date == "2024-11-12" & period == 1)
+
+risacher_closest_def_p1 <- closest_defender_dashboard |> filter(offender_id == "1642258" & game_date == 2024-11-12 & period == 1)
+
+```
+
+```{r}
+library(brms)
+
+shot_attempt_model_nb <- brm(
+  formula = offender_fga ~ fouls_scaled +
+    (1 | slug_team_def) +
+    (1 | position) +
+    (1 | offender_shot_dist_range) +
+    (1 | close_def_dist_range),
+  family = negbinomial(),
+  data = period_agg_by_team,
+  chains = 4,
+  iter = 2000,
+  file = "../models/shot-attempt-model-nb-2.rds"
+)
+
+shot_defense_model_small_01 <- brm(
+  formula = offender_fgm ~ 
+    offender_fga +
+    defender_fga +
+    defender_fgm +
+    (1 | game_id) +     
+    (1 | slug_team_off) +
+    (1 | slug_team_def) +
+    (1 | offender_name) + 
+    (1 | defender_name), 
+  data = period_agg_small,
+  chains = 4,
+  iter = 2000,
+  file = "../models/shot-defense-model_small-01.rds"
+)
+
+shot_defense_model_small_02 <- brm(
+  formula = offender_fgm | trials(offender_fga) ~
+    defender_fga +
+    defender_fgm +
+    (1 | game_id) +     
+    (1 | slug_team_off) +
+    (1 | slug_team_def) +
+    (1 | offender_name) + 
+    (1 | defender_name),
+  family = binomial(),
+  data = period_agg_small,
+  chains = 4,
+  iter = 2000,
+  file = "../models/shot-defense-model_small-02.rds"
+)
+
+```
+
+```{r}
+
+pp_check(shot_defense_model_small_01)
+
+pp_check(shot_attempt_model_nb)
+
+summary(shot_attempt_model_nb)
+
+marginal_effects(shot_attempt_model_nb)
+
+library(distributional)
+
+team_effects <- ranef(shot_attempt_model_nb)$slug_team_def[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("team") |>
+  arrange(desc(Estimate))
+
+position_effects <- ranef(shot_attempt_model_nb)$position[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("position") |>
+  arrange(desc(Estimate))
+
+offender_shot_dist_range_effects <- ranef(shot_attempt_model_nb)$offender_shot_dist_range[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("offender_shot_dist_range") |>
+  arrange(desc(Estimate))
+
+closest_def_dist_range_effects <- ranef(shot_attempt_model_nb)$close_def_dist_range[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("close_def_dist_range") |>
+  arrange(desc(Estimate))
+
+ggplot(team_effects, aes(y = reorder(team, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  labs(y = "Team", x = "Effect on Shot Attempts (log-odds)") +
+  theme_minimal()
+
+ggplot(position_effects, aes(y = reorder(position, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  labs(y = "Position", x = "Effect on Shot Attempts (log-odds)") +
+  theme_minimal()
+
+ggplot(offender_shot_dist_range_effects, aes(y = reorder(offender_shot_dist_range, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  labs(y = "Offender Shot Distance Range", x = "Effect on Shot Attempts (log-odds)") +
+  theme_minimal()
+
+ggplot(closest_def_dist_range_effects, aes(y = reorder(close_def_dist_range, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  labs(y = "Closest Defender Distance Range", x = "Effect on Shot Attempts (log-odds)") +
+  theme_minimal()
+
+library(bayesplot)
+mcmc_plot(shot_attempt_model_nb, type = "intervals")
+
+predicted <- posterior_predict(shot_attempt_model_nb)
+actual <- period_agg_by_team$offender_fga
+
+ggplot(data.frame(predicted = colMeans(predicted), 
+                 actual = actual)[1:length(actual),], 
+       aes(x = actual, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(x = "Actual Shot Attempts", y = "Predicted Shot Attempts") +
+  theme_minimal()
+
+library(tidybayes)
+def_dist_effects <- ranef(shot_attempt_model_nb)$close_def_dist_range[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("defender_distance") |>
+  ggplot(aes(y = reorder(defender_distance, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(title = "Effect of Defender Distance on Shot Attempts",
+       y = "Defender Distance",
+       x = "Effect Size (log scale)") +
+  theme_minimal()
+
+# 2. Shot Distance Effects
+shot_dist_effects <- ranef(shot_attempt_model_nb)$offender_shot_dist_range[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("shot_distance") |>
+  ggplot(aes(y = reorder(shot_distance, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(title = "Effect of Shot Distance on Shot Attempts",
+       y = "Shot Distance Range",
+       x = "Effect Size (log scale)") +
+  theme_minimal()
+
+# 3. Position Effects
+position_effects <- ranef(shot_attempt_model_nb)$position[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("position") |>
+  ggplot(aes(y = reorder(position, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(title = "Effect of Player Position on Shot Attempts",
+       y = "Position",
+       x = "Effect Size (log scale)") +
+  theme_minimal()
+
+# 4. Team Effects
+team_effects <- ranef(shot_attempt_model_nb)$slug_team_def[, , "Intercept"] |>
+  as.data.frame() |>
+  rownames_to_column("team") |>
+  ggplot(aes(y = reorder(team, Estimate), x = Estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(title = "Team Effects on Shot Attempts",
+       y = "Team",
+       x = "Effect Size (log scale)") +
+  theme_minimal()
+
+# 5. Combined plot of all fixed and random effects
+all_effects <- bind_rows(
+  ranef(shot_attempt_model_nb)$close_def_dist_range[, , "Intercept"] |>
+    as.data.frame() |>
+    rownames_to_column("parameter") |>
+    mutate(type = "Defender Distance"),
+  ranef(shot_attempt_model_nb)$offender_shot_dist_range[, , "Intercept"] |>
+    as.data.frame() |>
+    rownames_to_column("parameter") |>
+    mutate(type = "Shot Distance"),
+  ranef(shot_attempt_model_nb)$position[, , "Intercept"] |>
+    as.data.frame() |>
+    rownames_to_column("parameter") |>
+    mutate(type = "Position"),
+  ranef(shot_attempt_model_nb)$slug_team_def[, , "Intercept"] |>
+    as.data.frame() |>
+    rownames_to_column("parameter") |>
+    mutate(type = "Team")
+) |>
+  ggplot(aes(y = reorder(parameter, Estimate), x = Estimate, color = type)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  facet_wrap(~type, scales = "free_y") +
+  labs(title = "All Random Effects on Shot Attempts",
+       y = "",
+       x = "Effect Size (log scale)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display plots
+print(def_dist_effects)
+print(shot_dist_effects)
+print(position_effects)
+print(team_effects)
+print(all_effects)
+
+plot(conditional_effects(shot_attempt_model_nb, "fouls_scaled"))
+
+ggplot(period_agg_by_team, aes(x = personal_fouls_during_event, y = offender_fga, color = position)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "gam", se = TRUE) +
+  labs(title = "Shot Attempts vs Fouls by Position",
+       x = "Fouls During Event",
+       y = "Shot Attempts") +
+  theme_minimal()
+
+# By shot distance range
+ggplot(period_agg_by_team, aes(x = personal_fouls_during_event, y = offender_fga, 
+                              color = offender_shot_dist_range)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "gam", se = TRUE) +
+  labs(title = "Shot Attempts vs Fouls by Shot Distance Range",
+       x = "Fouls During Event",
+       y = "Shot Attempts") +
+  theme_minimal()
+
+# By defender distance
+ggplot(period_agg_by_team, aes(x = personal_fouls_during_event, y = offender_fga, 
+                              color = close_def_dist_range)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "gam", se = TRUE) +
+  labs(title = "Shot Attempts vs Fouls by Defender Distance",
+       x = "Fouls During Event",
+       y = "Shot Attempts") +
+  theme_minimal()
+
+# Box plots to show distributions
+# By position
+ggplot(period_agg_by_team, 
+       aes(x = factor(personal_fouls_during_event), y = offender_fga)) +
+  geom_boxplot(aes(fill = position)) +
+  facet_wrap(~position) +
+  labs(title = "Distribution of Shot Attempts by Foul Count and Position",
+       x = "Number of Fouls",
+       y = "Shot Attempts") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45))
+
+# By shot distance
+ggplot(period_agg_by_team, 
+       aes(x = factor(personal_fouls_during_event), y = offender_fga)) +
+  geom_boxplot(aes(fill = offender_shot_dist_range)) +
+  facet_wrap(~offender_shot_dist_range) +
+  labs(title = "Distribution of Shot Attempts by Foul Count and Shot Distance",
+       x = "Number of Fouls",
+       y = "Shot Attempts") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45))
+
+plot(conditional_effects(shot_attempt_model_nb, "fouls_scaled"))
+
+```
+```{r}
+
+period_agg_small_02 <- (period_agg
+  |> filter(game_date <= "2024-12-11" & game_date >= "2024-12-01")
+)
+
+shot_defense_model_small_03 <- update(
+  shot_defense_model_small_02,
+  newdata = period_agg_small_02,
+  chains = 4,
+  iter = 2000,
+  file = "../models/shot-defense-model_small-03.rds"
+)
+
+
+
+```
+
+```{r}
+
+pp_check(shot_defense_model_small_03)
+
+summary(shot_defense_model_small_03)
+
+marginal_effects(shot_defense_model_small_03)
+
+stancode(shot_defense_model_small_03)
+
+# Get random effects for defenders
+defender_effects <- ranef(shot_defense_model_small_03)$defender_name %>%
+  data.frame() %>%
+  rownames_to_column("defender_name") %>%
+  rename(estimate = Estimate.Intercept,
+         est_error = Est.Error.Intercept,
+         q2.5 = Q2.5.Intercept,
+         q97.5 = Q97.5.Intercept) %>%
+  arrange(desc(estimate))
+
+# Get random effects for offensive players
+offender_effects <- ranef(shot_defense_model_small_03)$offender_name %>%
+  data.frame() %>%
+  rownames_to_column("offender_name") %>%
+  rename(estimate = Estimate.Intercept,
+         est_error = Est.Error.Intercept,
+         q2.5 = Q2.5.Intercept,
+         q97.5 = Q97.5.Intercept) %>%
+  arrange(desc(estimate))
+
+# View top defenders and offensive players
+head(defender_effects)
+head(offender_effects)
+
+# Optional: visualize the distributions
+library(ggplot2)
+
+ggplot(defender_effects, aes(y = reorder(defender_name, estimate), x = estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = q2.5, xmax = q97.5)) +
+  labs(y = "Defender", x = "Effect on Shot Success (log-odds)") +
+  theme_minimal()
+
+```
+
+```{r}
+period_agg_small_03 <- (period_agg
+  |> filter(game_date <= "2024-12-01" & game_date >= "2024-11-15")
+)
+
+shot_defense_model_small_04 <- update(
+  shot_defense_model_small_03,
+  newdata = period_agg_small_03,
+  chains = 4,
+  iter = 2000,
+  file = "../models/shot-defense-model_small-04.rds"
+)
+
+```
+```{r}
+
+summary(shot_defense_model_small_04)
+
+pp_check(shot_defense_model_small_04)
+
+# Get random effects for defenders
+defender_effects <- ranef(shot_defense_model_small_04)$defender_name %>%
+  data.frame() %>%
+  rownames_to_column("defender_name") %>%
+  rename(estimate = Estimate.Intercept,
+         est_error = Est.Error.Intercept,
+         q2.5 = Q2.5.Intercept,
+         q97.5 = Q97.5.Intercept) %>%
+  arrange(desc(estimate))
+
+# Get random effects for offensive players
+offender_effects <- ranef(shot_defense_model_small_04)$offender_name %>%
+  data.frame() %>%
+  rownames_to_column("offender_name") %>%
+  rename(estimate = Estimate.Intercept,
+         est_error = Est.Error.Intercept,
+         q2.5 = Q2.5.Intercept,
+         q97.5 = Q97.5.Intercept) %>%
+  arrange(desc(estimate))
+
+# View top defenders and offensive players
+head(defender_effects)
+head(offender_effects)
+
+# Optional: visualize the distributions
+library(ggplot2)
+
+ggplot(defender_effects, aes(y = reorder(defender_name, estimate), x = estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = q2.5, xmax = q97.5)) +
+  labs(y = "Defender", x = "Effect on Shot Success (log-odds)") +
+  theme_minimal()
+
+
+defense_team_effects <- ranef(shot_defense_model_small_04)$slug_team_def %>%
+  data.frame() %>%
+  rownames_to_column("slug_team_def") %>%
+  rename(estimate = Estimate.Intercept,
+         est_error = Est.Error.Intercept,
+         q2.5 = Q2.5.Intercept,
+         q97.5 = Q97.5.Intercept) %>%
+  arrange(desc(estimate))
+
+# Get random effects for offensive players
+offense_team_effects <- ranef(shot_defense_model_small_04)$slug_team_off %>%
+  data.frame() %>%
+  rownames_to_column("slug_team_off") %>%
+  rename(estimate = Estimate.Intercept,
+         est_error = Est.Error.Intercept,
+         q2.5 = Q2.5.Intercept,
+         q97.5 = Q97.5.Intercept) %>%
+  arrange(desc(estimate))
+
+random_effects <- ranef(shot_defense_model_small_04)
+
+fixed_effects <- fixef(shot_defense_model_small_04)
+
+
+```
+          
+gp2_pbp <- (shot_df 
+            |> filter(game_id == 22400251) 
+)
+
+testy <- (gp2_pbp 
+          |> left_join(shot_pbp_by_defense, by = join_by(game_id, number_original, period, game_date)) 
+          |> select(game_date, game_id, period, number_original, clock, player1, player2, known_defender, locX, locY, possession, defender_name, slug_team, slug_opp, minutes_remaining, seconds_remaining, event_type, action_type, shot_zone_basic, shot_zone_area, shot_zone_range, shot_distance, shot_attempted_flag, shot_made_flag, shot_type, defense_category)
+)
+
+testy_agg <- (testy 
+         |> group_by(game_id, period, defender_name, shot_type, defense_category, shot_attempted_flag, shot_made_flag)
+         |> summarise(counts = n())
+)
+
+reshaped_agg <- (testy_agg
+  |> # get rid of shot_attempted_flag b/c it's always 1 
+    select(-shot_attempted_flag) 
+  |> # pivoting shot_made_flag to create makes/misses columns
+    pivot_wider(
+      names_from = shot_made_flag,
+      values_from = counts,
+      names_prefix = "count_",
+      values_fill = 0  # Important: fill NAs with 0
+    )
+  |> # renaming for clarity
+    rename(
+      misses = count_0,
+      makes = count_1
+    )
+)
+
+testy |> write_csv("22400251_pbp.csv")
+
+reshaped_agg |> write_csv("22400251_def-dash-agg.csv")
+
+```
+
+```{r}
+library(tidybayes)
+                   
+
+testy <- (
+  testy 
+  |> group_by(number_original) 
+  |> mutate(
+      defender_pos = row_number()
+      ) 
+  |> mutate(
+    has_known_defender = !is.na(known_defender),
+    known_defender_indicator = if_else(has_known_defender & known_defender == defender_name, 1, 0),
+      known_defender_pos = if_else(
+        has_known_defender & known_defender == defender_name,
+        defender_pos,
+        1L)  # arbitrary if not known
+      )
+)
+
+hyperparameters <- tibble(alpha_known = 1000.0,
+    alpha_unknown = 0.001,
+    alpha_regular = 2.0)
+
+compose_test <- compose_data(testy)
+
+compose_test$N <- compose_test$n
+
+
+
+reshaped_agg <- reshaped_agg |> 
+  mutate(defense_category = factor(
+    defense_category,
+    levels = c("Less Than 6 Ft", "Less Than 10 Ft", "10-15 Ft", "Greater Than 15 Ft")
+  ))
+
+compose_agg <- compose_data(reshaped_agg)
+
+# the following does the same thing to the reshaped_agg data as does compose_data(reshaped_agg), which results in compose_data(reshaped_agg)$makes and compose_data(reshaped_agg)$misses, equivalent to makes_array and misses_array
+makes_array <- reshaped_agg %>%
+  mutate(
+    shot_type_num = if_else(shot_type == "3pt", 2L, 1L),
+    defense_category_num = as.numeric(defense_category),
+    defender_id = n_distinct(defender_name)
+  ) %>%
+  arrange(defender_id, period, shot_type_num, defense_category_num) %>%
+  pull(makes)
+
+misses_array <- reshaped_agg %>%
+  mutate(
+    shot_type_num = if_else(shot_type == "3pt", 2L, 1L),
+    defense_category_num = as.numeric(defense_category),
+    defender_id = as.numeric(str_extract(defender_name, "\\d+"))
+  ) %>%
+  arrange(defender_id, period, shot_type_num, defense_category_num) %>%
+  pull(misses)
+
+stan_data$makes <- array(
+  compose_agg$makes,
+  dim = c(n_defender_name, n_period, n_shot_type, n_defense_category)
+)
+
+stan_data$misses <- array(
+  compose_agg$misses,
+  dim = c(n_defender_name, n_period, n_shot_type, n_defense_category)
+)
+
+```
+
+```{r}
+
+  # Read data 
+  pbp <- testy
+  def_dash <- reshaped_agg
+  
+  # Get dimensions 
+  N_shots <- n_distinct(pbp$number_original)
+  N_defenders <- n_distinct(def_dash$defender_name)
+  N_periods <- n_distinct(pbp$period)
+  N_shot_types <- n_distinct(pbp$shot_type)
+  N_def_categories <- n_distinct(def_dash$defense_category)
+  
+  # Create mappings
+  defender_to_id <- (reshaped_agg
+                     %>% distinct(defender_name)
+                     %>% arrange(defender_name)
+                     %>% mutate(id = row_number())
+                     %>% deframe()
+  )
+  
+  def_cat_to_id <- def_dash %>%
+    distinct(defense_category) %>%
+    arrange(defense_category) %>%
+    mutate(id = row_number()) %>%
+    deframe()
+  
+  # Process play-by-play data
+  shots_data <- pbp %>%
+    # Group by shot
+    group_by(number_original) %>%
+    mutate(
+      defender_id = defender_to_id[defender_name],
+      # Get position of each defender in the group (1-5)
+      defender_pos = row_number()
+    ) %>%
+    # Add shot info from first row of each group
+    mutate(
+      period = first(period),
+      shot_type = if_else(str_detect(first(shot_type), "2pt"), 1L, 2L),
+      def_category = def_cat_to_id[first(defense_category)],
+      shot_made = first(shot_made_flag),
+      has_known = !is.na(first(known_defender)) && first(known_defender) != "NA",
+      known_defender_name = first(known_defender)
+    ) %>%
+    # For shots with known defenders, find their position
+    group_by(number_original) %>%
+    mutate(
+      known_defender_pos = if_else(
+        has_known,
+        which(defender_name == known_defender_name)[1],
+        1L  # arbitrary if not known
+      )
+    ) %>%
+    # Create wide format for defenders
+    select(
+      number_original, period, shot_type, def_category, shot_made,
+      has_known, known_defender_pos, defender_id, defender_pos
+    ) %>%
+    pivot_wider(
+      names_from = defender_pos,
+      values_from = defender_id,
+      names_prefix = "defender_"
+    ) %>%
+    ungroup()
+  
+  # Process defender dashboard data
+  def_dash_processed <- def_dash %>%
+    mutate(
+      defender_id = defender_to_id[defender_name],
+      def_category_id = def_cat_to_id[defense_category],
+      shot_type = if_else(shot_type == "2pt", 1L, 2L)
+    )
+  
+  # Create makes/misses arrays
+  makes_array <- array(0L, dim = c(N_defenders, N_periods, N_shot_types, N_def_categories))
+  misses_array <- array(0L, dim = c(N_defenders, N_periods, N_shot_types, N_def_categories))
+  
+  def_dash_processed %>%
+    group_by(defender_id, period, shot_type, def_category_id) %>%
+    summarise(
+      makes = sum(makes),
+      misses = sum(misses),
+      .groups = "drop"
+    ) %>%
+    pwalk(function(defender_id, period, shot_type, def_category_id, makes, misses) {
+      makes_array[defender_id, period, shot_type, def_category_id] <<- makes
+      misses_array[defender_id, period, shot_type, def_category_id] <<- misses
+    })
+  
+  # Prepare Stan data list
+  stan_data <- list(
+    N_shots = N_shots,
+    N_defenders = N_defenders, 
+    N_periods = N_periods,
+    N_shot_types = N_shot_types,
+    N_def_categories = N_def_categories,
+    
+    # Play by play data
+    defenders = shots_data %>%
+      select(starts_with("defender_")) %>%
+      as.matrix(),
+    period = shots_data$period,
+    shot_type = shots_data$shot_type,
+    def_category = shots_data$def_category,
+    shot_made = shots_data$shot_made,
+    
+    # Defender dashboard aggregates
+    makes = makes_array,
+    misses = misses_array,
+    
+    # Known defender info
+    has_known_defender = shots_data$has_known,
+    known_defender_pos = shots_data$known_defender_pos,
+    
+    # Concentration parameters
+    alpha_known = 1000.0,
+    alpha_unknown = 0.001,
+    alpha_regular = 2.0
+  )
+  
+  out <- list(
+    stan_data = stan_data,
+    defender_to_id = defender_to_id
+  )
+}
+
+```
+
+```{r}
+set.seed(42)
+
+# Constants
+N <- 100
+n_defender_name <- 10
+n_period <- 4
+n_shot_type <- 2
+n_defense_category <- 3
+
+# Create base shot data
+shots_df <- tibble(
+  shot_id = 1:N,
+  period = sample(1:n_period, N, replace = TRUE),
+  shot_type = sample(c("2PT", "3PT"), N, replace = TRUE, prob = c(0.7, 0.3)),
+  defense_category = factor(
+    sample(1:n_defense_category, N, replace = TRUE),
+    levels = 1:n_defense_category,
+    labels = c("Tight", "Moderate", "Loose")
+  ),
+  shot_made = rbinom(N, 1, 0.45)
+)
+
+# Create defenders data (5 defenders per shot)
+defenders_df <- crossing(
+  shot_id = 1:N,
+  defender_position = 1:5
+) %>%
+  mutate(
+    defender_id = sample(1:n_defender_name, n(), replace = TRUE),
+    defender_name = str_c("Player_", defender_id)
+  )
+
+# Create all possible combinations
+all_combinations <- crossing(
+  defender_name = str_c("Player_", 1:n_defender_name),
+  period = 1:n_period,
+  shot_type = c("2PT", "3PT"),
+  defense_category = c("Tight", "Moderate", "Loose")
+)
+
+# Join shots and defenders data and calculate stats
+defender_stats <- shots_df %>%
+  left_join(defenders_df, by = "shot_id") %>%
+  # First count actual occurrences
+  group_by(defender_name, period, shot_type, defense_category) %>%
+  summarise(
+    total_shots = n()/5,  # Divide by 5 since each shot appears 5 times
+    makes = sum(shot_made)/5,
+    misses = total_shots - makes,
+    .groups = "drop"
+  ) %>%
+  # Join with all possible combinations to ensure we have all combinations
+  right_join(all_combinations, by = c("defender_name", "period", "shot_type", "defense_category")) %>%
+  # Replace NA with 0
+  replace_na(list(total_shots = 0, makes = 0, misses = 0))
+)
+
+# Create arrays for Stan
+makes_array <- defender_stats %>%
+  mutate(
+    shot_type_num = if_else(shot_type == "3PT", 2L, 1L),
+    defense_category_num = as.numeric(factor(defense_category, levels = c("Tight", "Moderate", "Loose"))),
+    defender_id = as.numeric(str_extract(defender_name, "\\d+"))
+  ) %>%
+  arrange(defender_id, period, shot_type_num, defense_category_num) %>%
+  pull(makes) %>%
+  as.integer()  # Ensure integer type
+
+misses_array <- defender_stats %>%
+  mutate(
+    shot_type_num = if_else(shot_type == "3PT", 2L, 1L),
+    defense_category_num = as.numeric(factor(defense_category, levels = c("Tight", "Moderate", "Loose"))),
+    defender_id = as.numeric(str_extract(defender_name, "\\d+"))
+  ) %>%
+  arrange(defender_id, period, shot_type_num, defense_category_num) %>%
+  pull(misses) %>%
+  as.integer()  # Ensure integer type
+
+# Create the arrays with explicit integer type
+stan_data <- list(
+  N = as.integer(N),
+  n_defender_name = as.integer(n_defender_name),
+  n_period = as.integer(n_period),
+  n_shot_type = as.integer(n_shot_type),
+  n_defense_category = as.integer(n_defense_category),
+  
+  defender_name = matrix(
+    as.integer(defenders_df %>%
+      group_by(shot_id) %>%
+      arrange(defender_position) %>%
+      pull(defender_id)),
+    nrow = N,
+    byrow = TRUE
+  ),
+  
+  period = as.integer(shots_df$period),
+  shot_type = as.integer(shots_df$shot_type == "3PT") + 1L,
+  defense_category = as.integer(shots_df$defense_category),
+  shot_made_flag = as.integer(shots_df$shot_made),
+  known_defender_indicator = as.integer(rbinom(N, 1, 0.7)),
+  known_defender_pos = as.integer(sample(1:5, N, replace = TRUE)),
+  
+  # Create arrays ensuring integer type
+  makes = array(
+    makes_array,
+    dim = c(n_defender_name, n_period, n_shot_type, n_defense_category)
+  ),
+  misses = array(
+    misses_array,
+    dim = c(n_defender_name, n_period, n_shot_type, n_defense_category)
+  ),
+  
+  # Hyperparameters (these stay as doubles)
+  alpha_known = 1000.0,
+  alpha_unknown = 0.001,
+  alpha_regular = 2.0
+)
+```
+
+```{r}
+library(cmdstanr)
+
+# Compile the model
+model <- cmdstan_model(stan_file = "../models/defender-hmm-binomial_full.stan")
+
+# Fit the model
+fit_cmdstanr <- model$sample(
+  data = stan_data,
+  chains = 4,
+  parallel_chains = parallel::detectCores(),
+  iter_warmup = 1000,
+  iter_sampling = 1000
+)
+```

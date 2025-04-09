@@ -1,0 +1,296 @@
+```{r}
+library(tidyverse)
+
+# Function to simulate NBA shot and foul data
+simulate_nba_shots <- function(
+  n_observations = 1000,
+  n_defenders = 50,
+  n_teams = 10,
+  position_names = c("PG", "SG", "SF", "PF", "C"),
+  shot_distance_ranges = c("0_through_9_ft", "10_through_23_ft", "24_plus"),
+  defender_proximity_ranges = c("0-2 Feet", "2-4 Feet", "4-6 Feet", "6+ Feet"),
+  seed = 42
+) {
+  set.seed(seed)
+  
+  # Create teams
+  teams <- paste0("Team_", LETTERS[1:n_teams])
+  
+  # Creating a tibble of defenders
+  defenders <- tibble(
+    defender_id = 1:n_defenders,
+    defender_name = paste0("Player_", 1:n_defenders),
+    position_id = sample(1:length(position_names), n_defenders, replace = TRUE),
+    position = position_names[position_id],
+    team = sample(teams, n_defenders, replace = TRUE),
+    defensive_skill = rnorm(n_defenders, 0, 1)
+  )
+  
+  # Function to sample 5 unique defenders for a shot
+  sample_defenders <- function(defenders_df) {
+    sample(defenders_df$defender_id, 5, replace = FALSE)
+  }
+  
+  # Create a list of defender IDs for each shot
+  defender_ids_list <- replicate(n_observations, sample_defenders(defenders), simplify = FALSE)
+  
+  # Create a long format dataset for defenders
+  defender_data <- tibble(
+    shot_id = rep(1:n_observations, each = 5),
+    defender_id = unlist(defender_ids_list)
+  ) |>
+    left_join(defenders, by = "defender_id") |>
+    group_by(shot_id) |>
+    mutate(
+      # Simulate fouls based on position and skill
+      position_foul_effect = case_when(
+        position == "C" ~ 1.0,
+        position == "PF" ~ 0.7,
+        position == "SF" ~ 0.3,
+        position == "SG" ~ 0.2,
+        position == "PG" ~ 0.0
+      ),
+      
+      # Defenders with lower skill tend to foul more
+      defender_foul_count = pmin(5, pmax(0, round(rpois(n(), lambda = max(0, 2 - defensive_skill + position_foul_effect))))),
+      
+      # Defender proximity affected by fouls and skill
+      # More fouls -> more distance
+      proximity_base = 2 + defender_foul_count * 0.5 - defensive_skill,
+      proximity_category_id = pmin(4, pmax(1, round(proximity_base))),
+      defender_proximity = defender_proximity_ranges[proximity_category_id]
+    ) |>
+    ungroup()
+  
+  # Calculate shot characteristics based on closest defender
+  shot_characteristics <- defender_data |>
+    group_by(shot_id) |>
+    summarize(
+      # Use the closest defender's characteristics for shot distance
+      closest_defender_position = position[which.min(proximity_category_id)],
+      shot_distance_category = case_when(
+        closest_defender_position %in% c("PG", "SG") & runif(1) < 0.6 ~ "24_plus",
+        closest_defender_position %in% c("SF") & runif(1) < 0.4 ~ "24_plus",
+        closest_defender_position %in% c("PF", "C") & runif(1) < 0.2 ~ "24_plus",
+        closest_defender_position %in% c("PF", "C") & runif(1) < 0.6 ~ "0_through_9_ft",
+        TRUE ~ "10_through_23_ft"
+      ),
+      
+      # Calculate shot success probability based on all defenders
+      base_prob = case_when(
+        shot_distance_category == "0_through_9_ft" ~ 0.6,
+        shot_distance_category == "10_through_23_ft" ~ 0.4,
+        shot_distance_category == "24_plus" ~ 0.35
+      ),
+      
+      # Aggregate defender effects
+      proximity_effect = mean(case_when(
+        defender_proximity == "0-2 Feet" ~ -0.15,
+        defender_proximity == "2-4 Feet" ~ -0.08,
+        defender_proximity == "4-6 Feet" ~ -0.02,
+        defender_proximity == "6+ Feet" ~ 0.05
+      )),
+      
+      foul_effect = mean(defender_foul_count) * 0.02,
+      defensive_skill_effect = mean(-defensive_skill * 0.3),
+      
+      shot_prob = plogis(qlogis(base_prob) + proximity_effect + foul_effect + defensive_skill_effect),
+      shot_made = rbinom(1, 1, shot_prob)
+    )
+  
+  # Create the final dataset with all defender information
+  final_dataset <- defender_data |>
+    left_join(shot_characteristics, by = "shot_id") |>
+    mutate(
+      game_id = sample(1:20, n(), replace = TRUE),
+      period = sample(1:4, n(), replace = TRUE),
+      shots_attempted = 1
+    ) |>
+    select(
+      shot_id, game_id, period,
+      defender_id, defender_name, position, team,
+      defender_foul_count, defender_proximity,
+      shot_distance_category, shot_made,
+      defensive_skill
+    )
+  
+  return(final_dataset)
+}
+
+# Example usage:
+# simulated_data <- simulate_nba_shots(n_observations = 1000, n_defenders = 50, n_teams = 10)
+```
+
+First we'll create a simple framework for generating games
+
+```{r}
+set.seed(42)
+
+# Sim parameters
+n_observations <- 1000
+n_defenders <- 50
+n_positions <- 5
+n_teams <- 10
+position_names <- c("PG", "SG", "SF", "PF", "C")
+shot_distance_ranges <- c("0_through_9_ft", "10_through_23_ft", "24_plus")
+defender_proximity_ranges <- c("0-2 Feet", "2-4 Feet", "4-6 Feet", "6+ Feet")
+teams <- paste0("Team_", LETTERS[1:n_teams])
+
+# Creating a tibble of defenders
+defenders <- tibble(
+  defender_id = 1:n_defenders,
+  defender_name = paste0("Player_", 1:n_defenders),
+  position_id = sample(1:n_positions, n_defenders, replace = TRUE),
+  position = position_names[position_id],
+  team = sample(teams, n_defenders, replace = TRUE),
+  defensive_skill = rnorm(n_defenders, 0, 1)
+)
+
+# Function to sample 5 unique defenders for a shot
+sample_defenders <- function(defenders_df) {
+  sample(defenders_df$defender_id, 5, replace = FALSE)
+}
+
+# Create a list of defender IDs for each shot
+defender_ids_list <- replicate(n_observations, sample_defenders(defenders), simplify = FALSE)
+
+# Create a long format dataset for defenders
+defender_data <- tibble(
+  shot_id = rep(1:n_observations, each = 5),
+  defender_id = unlist(defender_ids_list)
+) |>
+  left_join(defenders, by = "defender_id") |>
+  group_by(shot_id) |>
+  mutate(
+    # Simulate fouls based on position and skill
+    position_foul_effect = case_when(
+      position == "C" ~ 1.0,
+      position == "PF" ~ 0.7,
+      position == "SF" ~ 0.3,
+      position == "SG" ~ 0.2,
+      position == "PG" ~ 0.0
+    ),
+    
+    # Defenders with lower skill tend to foul more
+    defender_foul_count = pmin(5, pmax(0, round(rpois(n(), lambda = max(0, 2 - defensive_skill + position_foul_effect))))),
+    
+    # Defender proximity affected by fouls and skill
+    # More fouls -> more distance
+    proximity_base = 2 + defender_foul_count * 0.5 - defensive_skill,
+    proximity_category_id = pmin(4, pmax(1, round(proximity_base))),
+    defender_proximity = defender_proximity_ranges[proximity_category_id]
+  ) |>
+  ungroup()
+
+# Calculate shot characteristics based on closest defender
+shot_characteristics <- defender_data |>
+  group_by(shot_id) |>
+  summarize(
+    # Use the closest defender's characteristics for shot distance
+    closest_defender_position = position[which.min(proximity_category_id)],
+    shot_distance_category = case_when(
+      closest_defender_position %in% c("PG", "SG") & runif(1) < 0.6 ~ "24_plus",
+      closest_defender_position %in% c("SF") & runif(1) < 0.4 ~ "24_plus",
+      closest_defender_position %in% c("PF", "C") & runif(1) < 0.2 ~ "24_plus",
+      closest_defender_position %in% c("PF", "C") & runif(1) < 0.6 ~ "0_through_9_ft",
+      TRUE ~ "10_through_23_ft"
+    ),
+    
+    # Calculate shot success probability based on all defenders
+    base_prob = case_when(
+      shot_distance_category == "0_through_9_ft" ~ 0.6,
+      shot_distance_category == "10_through_23_ft" ~ 0.4,
+      shot_distance_category == "24_plus" ~ 0.35
+    ),
+    
+    # Aggregate defender effects
+    proximity_effect = mean(case_when(
+      defender_proximity == "0-2 Feet" ~ -0.15,
+      defender_proximity == "2-4 Feet" ~ -0.08,
+      defender_proximity == "4-6 Feet" ~ -0.02,
+      defender_proximity == "6+ Feet" ~ 0.05
+    )),
+    
+    foul_effect = mean(defender_foul_count) * 0.02,
+    defensive_skill_effect = mean(-defensive_skill * 0.3),
+    
+    shot_prob = plogis(qlogis(base_prob) + proximity_effect + foul_effect + defensive_skill_effect),
+    shot_made = rbinom(1, 1, shot_prob)
+  )
+
+# Create the final dataset with all defender information
+final_dataset <- defender_data |>
+  left_join(shot_characteristics, by = "shot_id") |>
+  mutate(
+    game_id = sample(1:20, n(), replace = TRUE),
+    period = sample(1:4, n(), replace = TRUE),
+    shots_attempted = 1
+  ) |>
+  select(
+    shot_id, game_id, period,
+    defender_id, defender_name, position, team,
+    defender_foul_count, defender_proximity,
+    shot_distance_category, shot_made,
+    defensive_skill
+  )
+
+final_dataset |> 
+  group_by(defender_name, defender_foul_count, shot_distance_category) |> 
+  add_count() |> 
+  summarize(shots_taken = n, shots_made = sum(shot_made)) |> 
+  distinct()
+
+```
+
+To get our base rates for shot taking/making, we'll look at point summaries from a historical season (2018-2019).
+
+```{r}
+
+season <- "2021-22"
+
+player_logs <- nba_leaguegamelog(season = season, player_or_team = "P") |>
+  pluck("LeagueGameLog") |>
+  clean_names() |>
+  mutate(team_location = ifelse(str_detect(matchup, "\\@"), "away", "home"),
+         across(c(player_id, team_id), as.numeric))
+
+first_date <- player_logs |>
+  distinct(game_date) |>
+  arrange(game_date) |> 
+  head(1)
+
+last_date <- player_logs |>
+  distinct(game_date) |>
+  arrange(game_date) |> 
+  tail(1)
+
+historical_shot_df <- nba_shotchartdetail(
+  context_measure = "FGA",
+  date_from = first_date$game_date,
+  date_to = last_date$game_date,
+  game_id = "",
+  game_segment = "",
+  last_n_games = 0,
+  league_id = "00",
+  location = "",
+  month = 0,
+  opponent_team_id = 0,
+  outcome = "",
+  period = 0,
+  player_id = 0,
+  player_position = "",
+  rookie_year = "",
+  season = season,
+  season_segment = "",
+  season_type = "Regular Season",
+  team_id = 0,
+  vs_conference = "",
+  vs_division = ""
+) |> pluck("Shot_Chart_Detail") |> clean_names()
+
+historical_shot_df |> 
+  group_by(shot_zone_basic, shot_zone_range, shot_zone_area) |> 
+  summarize(n_shots = sum(as.numeric(shot_attempted_flag)), n_shots_made = sum(as.numeric(shot_made_flag))) |> 
+  mutate(pct = n_shots_made/n_shots)
+```
+
