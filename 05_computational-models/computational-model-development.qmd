@@ -1,0 +1,36 @@
+```{r}
+library(tidyverse)
+library(brms)
+source("../00_R/simulate_l2m.R")
+```
+
+First we generate 12,500 synthetic observations using our simulate_l2m function
+
+```{r}
+synthetic_data <- simulate_l2m()
+
+synthetic_data_aggregated <- synthetic_data |> 
+  group_by(game_id, is_pre_all_star, decision) |> 
+  summarize(fouls = sum(personal_foul_occurance_on_player))
+```
+
+Now we define a model formula using brms syntax 
+
+```{r}
+l2m_poisson_formula <- bf(
+  fouls ~ (1 | is_pre_all_star)
+)
+
+l2m_poisson_model <- brm(
+  formula = l2m_poisson_formula,
+  data = synthetic_data_aggregated,
+  family = poisson(),
+  sample_prior = "only",
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  seed = 42
+)
+```
+
+

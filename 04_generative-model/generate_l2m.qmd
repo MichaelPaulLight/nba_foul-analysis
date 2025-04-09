@@ -1,0 +1,438 @@
+```{r}
+library(ggthemes)
+
+# Definng a custom theme
+theme_report <- function() {
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Arial", color = "#333333"),
+    plot.title = element_text(face = "bold", size = 16, color = "#2c3e50"),
+    axis.title = element_text(size = 12, color = "#2c3e50"),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+}
+
+# Defining a color palette
+report_colors <- c("#3498db", "#e74c3c", "#2ecc71", "#f39c12", "#9b59b6", 
+                   "#1abc9c", "#d35400", "#34495e", "#7f8c8d", "#2980b9", "#8e44ad")
+```
+
+```{r}
+library(tidyverse)
+```
+
+First we'll create a simple framework for generating games
+
+```{r}
+n_games <- 5       # Number of games
+n_players <- 25    # Number of players
+n_events_per_game <- 100  # Events per game
+
+# True parameter values
+base_rate <- -3.7   # Base log-odds for foul probability (~2.5% foul rate)
+all_star_effect <- 0.5  # Additional log-odds for pre-All-Star games
+player_sd <- 0.3    # SD for player random effects
+team_sd <- 0.2      # SD for team effects
+period_sd <- 0.15   # SD for period effects
+game_sd <- 0.25     # SD for game effects
+
+# Define positions and their baseline foul tendencies
+positions <- c("PG", "SG", "SF", "PF", "C")
+position_effects <- c(-0.2, -0.1, 0, 0.2, 0.3)  # Assumes centers (biggest guys) foul more than guards (littlest guys) 
+names(position_effects) <- positions
+
+# Generate player effects
+set.seed(123)
+player_effects <- rnorm(n_players, 0, player_sd)
+names(player_effects) <- paste0("Player_", 1:n_players)
+
+# Assign positions to players
+# Same number of players for each position
+player_positions <- sample(positions, n_players, replace = TRUE, 
+                          prob = c(0.2, 0.2, 0.2, 0.2, 0.2))
+names(player_positions) <- names(player_effects)
+
+# Generate team effects
+n_teams <- 5
+team_effects <- rnorm(n_teams, 0, team_sd)
+teams <- paste0("Team_", LETTERS[1:n_teams])
+names(team_effects) <- teams
+
+# Generate game effects
+game_effects <- rnorm(n_games, 0, game_sd)
+names(game_effects) <- paste0("Game_", 1:n_games)
+
+# Generate period effects
+period_effects <- rnorm(4, 0, period_sd)
+names(period_effects) <- paste0("Period_", 1:4)
+
+# Function to simulate one game's events
+simulate_complete_game <- function(game_id) {
+  # Create data frame for this game
+  game_data <- data.frame()
+  
+  # Determine if game is before All-Star break (first half of season)
+  is_pre_all_star <- game_id <= ceiling(n_games/2)
+  
+  # Assign teams for this game
+  home_team <- sample(teams, 1)
+  away_team <- sample(setdiff(teams, home_team), 1)
+  
+  # Track accumulated fouls for each player
+  player_fouls <- rep(0, n_players)
+  names(player_fouls) <- paste0("Player_", 1:n_players)
+  
+  # Assign players to teams (5 players per team)
+  # Make sure each team has one player of each position
+  home_players <- character(5)
+  away_players <- character(5)
+  
+  for (pos in 1:5) {
+    pos_players <- names(player_positions[player_positions == positions[pos]])
+    if (length(pos_players) >= 2) {
+      selected <- sample(pos_players, 2)
+      home_players[pos] <- selected[1]
+      away_players[pos] <- selected[2]
+    } else {
+      # Fallback if not enough players of a position
+      available <- setdiff(names(player_positions), c(home_players, away_players))
+      home_players[pos] <- sample(available, 1)
+      available <- setdiff(available, home_players[pos])
+      away_players[pos] <- sample(available, 1)
+    }
+  }
+  
+  for (event in 1:n_events_per_game) {
+    # Determine period (1-4)
+    current_period <- ceiling(event / (n_events_per_game/4))
+    
+    # For each player on defense, simulate potential foul
+    defending_team <- ifelse(event %% 2 == 0, home_team, away_team)
+    defending_players <- ifelse(defending_team == home_team, list(home_players), list(away_players))[[1]]
+    
+    for (player in defending_players) {
+      # Get player position
+      player_position <- player_positions[player]
+      
+      # Calculate foul probability with All-Star break effect
+      logit_p <- base_rate + 
+                 (is_pre_all_star * all_star_effect) +  # Add All-Star break effect
+                 player_effects[player] + 
+                 position_effects[player_position] +
+                 team_effects[defending_team] +
+                 period_effects[paste0("Period_", current_period)] +
+                 game_effects[paste0("Game_", game_id)]
+      
+      p <- plogis(logit_p)
+      
+      # Simulate foul occurrence
+      foul_occurs <- rbinom(1, 1, p)
+      
+      # Add row to game data
+      event_data <- data.frame(
+        game_id = paste0("Game_", game_id),
+        number_event = event,
+        period = current_period,
+        player_name = player,
+        position = player_position,
+        slug_team = defending_team,
+        slug_opp = ifelse(defending_team == home_team, away_team, home_team),
+        personal_fouls_during_event = player_fouls[player],
+        personal_foul_occurance_on_player = foul_occurs,
+        act_type = sample(c("2pt", "3pt", "drive"), 1),
+        is_pre_all_star = is_pre_all_star
+      )
+      
+      game_data <- rbind(game_data, event_data)
+      
+      # Update player fouls if a foul occurred
+      if (foul_occurs) {
+        player_fouls[player] <- player_fouls[player] + 1
+      }
+    }
+  }
+  
+  return(game_data)
+}
+
+# Simulate all games
+sim_data <- do.call(rbind, lapply(1:n_games, simulate_complete_game))
+```
+
+Here we'll look at the 2015 season to inform our base rates for a similar simulation that generates last two minute reports
+
+```{r}
+# Read the play-by-play data
+pbp_data <- nanoparquet::read_parquet("../02_data/02-1_data_raw/250225_pbp_gt.parquet")
+
+l2m_data <- nanoparquet::read_parquet("../02_data/02-1_data_raw/ltm_raw.parquet")
+
+l2m_2015 <- l2m_data |> 
+  filter(date > "2015-07-01" & date < "2016-07-01", 
+         type %in% c("SHOOTING", "PERSONAL")) 
+
+# Analyze decision patterns
+decision_patterns <- l2m_2015 |> 
+  group_by(type, decision) |> 
+  summarize(
+    count = n(),
+    .groups = "drop"
+  ) |> 
+  mutate(
+    prop = count / sum(count),
+    prop_by_type = count / sum(count[type == first(type)])
+  )
+
+# Print decision patterns
+print(decision_patterns)
+
+decision_patterns_shooting <- l2m_2015 |>
+  filter(type == "SHOOTING") |> 
+  group_by(type, decision) |> 
+  summarize(
+    count = n(),
+    .groups = "drop"
+  ) |> 
+  mutate(
+    prop = count / sum(count),
+    prop_by_type = count / sum(count[type == first(type)])
+  )
+
+# Print decision patterns
+print(decision_patterns_shooting)
+
+# Visualize decision patterns
+ggplot(decision_patterns, aes(x = type, y = prop, fill = decision)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "L2M Decision Patterns (2015 Season)",
+    x = "Foul Type",
+    y = "Proportion",
+    fill = "Decision"
+  ) +
+  theme_minimal()
+
+# Calculate conditional probabilities
+# For calls (when a foul was called)
+call_probs <- l2m_2015 |> 
+  filter(decision %in% c("CC", "IC")) |> 
+  group_by(decision) |> 
+  summarize(
+    count = n(),
+    .groups = "drop"
+  ) |> 
+  mutate(
+    prop = count / sum(count)
+  )
+
+# For non-calls (when no foul was called)
+nocall_probs <- l2m_2015 |> 
+  filter(decision %in% c("CNC", "INC")) |> 
+  group_by(decision) |> 
+  summarize(
+    count = n(),
+    .groups = "drop"
+  ) |> 
+  mutate(
+    prop = count / sum(count)
+  )
+
+# Print conditional probabilities
+print(call_probs)
+print(nocall_probs)
+
+overtime <- l2m_2015 |>
+  group_by(period, gid) |> 
+  summarize(
+    count = n(),
+    .groups = "drop"
+  ) |> 
+  mutate(
+    prop = count / sum(count),
+    prop_by_type = count / sum(count[gid == first(gid)])
+  )
+
+l2m_2015 |> 
+  group_by(period) |> 
+  summarize(
+    total_periods = n_distinct(gid)
+  ) |> mutate(
+    prop = total_periods / sum(total_periods))
+
+```
+
+Code to simulate last 2 minute report data
+```{r}
+n_games <- 500       # Number of games
+n_players <- 250    # Number of players
+n_events_per_game <- 100  # Events per game
+game_length_minutes <- 48  # Total game length in minutes
+last_two_minutes <- 2     # Length of last two minutes period
+
+# Decision probabilities (based on typical L2M report patterns)
+# When a foul occurs:
+p_correct_call <- 0.9      # Probability of correct call when foul occurs
+p_incorrect_call <- 0.1    # Probability of incorrect call when foul occurs
+
+# When no foul occurs:
+p_correct_nocall <- 0.9   # Probability of correct non-call when no foul
+p_incorrect_nocall <- 0.1 # Probability of incorrect non-call when no foul
+
+# Calculate events in last two minutes
+events_per_minute <- n_events_per_game / game_length_minutes
+events_in_last_two <- ceiling(events_per_minute * last_two_minutes)
+
+# True parameter values
+base_rate <- -3.7   # Base log-odds for foul probability (~2.5% foul rate)
+all_star_effect <- 0.5  # Additional log-odds for pre-All-Star games
+player_sd <- 0.3    # SD for player random effects
+team_sd <- 0.2      # SD for team effects
+period_sd <- 0.15   # SD for period effects
+game_sd <- 0.25     # SD for game effects
+
+# Define positions and their baseline foul tendencies
+positions <- c("PG", "SG", "SF", "PF", "C")
+position_effects <- c(-0.2, -0.1, 0, 0.2, 0.3)  # Assumes centers (biggest guys) foul more than guards (littlest guys) 
+names(position_effects) <- positions
+
+# Generate player effects
+set.seed(123)
+player_effects <- rnorm(n_players, 0, player_sd)
+names(player_effects) <- paste0("Player_", 1:n_players)
+
+# Assign positions to players
+# Same number of players for each position
+player_positions <- sample(positions, n_players, replace = TRUE, 
+                          prob = c(0.2, 0.2, 0.2, 0.2, 0.2))
+names(player_positions) <- names(player_effects)
+
+# Generate team effects
+n_teams <- 5
+team_effects <- rnorm(n_teams, 0, team_sd)
+teams <- paste0("Team_", LETTERS[1:n_teams])
+names(team_effects) <- teams
+
+# Generate game effects
+game_effects <- rnorm(n_games, 0, game_sd)
+names(game_effects) <- paste0("Game_", 1:n_games)
+
+# Generate period effects
+period_effects <- rnorm(4, 0, period_sd)
+names(period_effects) <- paste0("Period_", 1:4)
+
+# Function to simulate one game's events
+simulate_l2m <- function(game_id) {
+  # Create data frame for this game
+  game_data <- data.frame()
+  
+  # Determine if game is before All-Star break (first half of season)
+  is_pre_all_star <- game_id <= ceiling(n_games/2)
+  
+  # Assign teams for this game
+  home_team <- sample(teams, 1)
+  away_team <- sample(setdiff(teams, home_team), 1)
+  
+  # Track accumulated fouls for each player
+  player_fouls <- rep(0, n_players)
+  names(player_fouls) <- paste0("Player_", 1:n_players)
+  
+  # Assign players to teams (5 players per team)
+  # Make sure each team has one player of each position
+  home_players <- character(5)
+  away_players <- character(5)
+  
+  for (pos in 1:5) {
+    pos_players <- names(player_positions[player_positions == positions[pos]])
+    if (length(pos_players) >= 2) {
+      selected <- sample(pos_players, 2)
+      home_players[pos] <- selected[1]
+      away_players[pos] <- selected[2]
+    } else {
+      # Fallback if not enough players of a position
+      available <- setdiff(names(player_positions), c(home_players, away_players))
+      home_players[pos] <- sample(available, 1)
+      available <- setdiff(available, home_players[pos])
+      away_players[pos] <- sample(available, 1)
+    }
+  }
+  
+  # Only simulate events in the last two minutes
+  start_event <- n_events_per_game - events_in_last_two + 1
+  
+  for (event in start_event:n_events_per_game) {
+    # Determine period (4th period for last two minutes)
+    current_period <- 4
+    
+    # For each player on defense, simulate potential foul
+    defending_team <- ifelse(event %% 2 == 0, home_team, away_team)
+    defending_players <- ifelse(defending_team == home_team, list(home_players), list(away_players))[[1]]
+    
+    for (player in defending_players) {
+      # Get player position
+      player_position <- player_positions[player]
+      
+      # Calculate foul probability with All-Star break effect
+      logit_p <- base_rate + 
+                 (is_pre_all_star * all_star_effect) +  # Add All-Star break effect
+                 player_effects[player] + 
+                 position_effects[player_position] +
+                 team_effects[defending_team] +
+                 period_effects[paste0("Period_", current_period)] +
+                 game_effects[paste0("Game_", game_id)]
+      
+      p <- plogis(logit_p)
+      
+      # Simulate foul occurrence
+      foul_occurs <- rbinom(1, 1, p)
+      
+      # Simulate decision based on whether foul occurred
+      if (foul_occurs) {
+        decision <- sample(c("CC", "IC"), 1, prob = c(p_correct_call, p_incorrect_call))
+      } else {
+        decision <- sample(c("CNC", "INC"), 1, prob = c(p_correct_nocall, p_incorrect_nocall))
+      }
+      
+      # Add row to game data
+      event_data <- data.frame(
+        game_id = paste0("Game_", game_id),
+        number_event = event,
+        period = current_period,
+        player_name = player,
+        position = player_position,
+        slug_team = defending_team,
+        slug_opp = ifelse(defending_team == home_team, away_team, home_team),
+        personal_fouls_during_event = player_fouls[player],
+        personal_foul_occurance_on_player = foul_occurs,
+        act_type = sample(c("2pt", "3pt", "drive"), 1),
+        is_pre_all_star = is_pre_all_star,
+        time_remaining = (n_events_per_game - event) / events_per_minute,  # Time remaining in minutes
+        decision = decision
+      )
+      
+      game_data <- rbind(game_data, event_data)
+      
+      # Update player fouls if a foul occurred
+      if (foul_occurs) {
+        player_fouls[player] <- player_fouls[player] + 1
+      }
+    }
+  }
+  
+  return(game_data)
+}
+
+# Simulate all games
+sim_data <- do.call(rbind, lapply(1:n_games, simulate_l2m))
+
+# Filter to only include fouls
+sim_l2m_data <- sim_data |> 
+  arrange(game_id, desc(time_remaining))
+
+# Check the distribution of decisions
+sim_l2m_data |> 
+  count(decision) |> 
+  mutate(prop = n / sum(n))
+```
+

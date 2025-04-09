@@ -1,0 +1,112 @@
+body {
+    font-family: 'Arial', sans-serif;
+    line-height: 1.4;
+    color: #333;
+    font-size: 0.95em;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 30px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: #2c3e50;
+    line-height: 1.2;
+    margin-top: 0.8em;
+    margin-bottom: 0.4em;
+}
+
+h1, .custom-header {
+    font-size: 1.7em;
+    border-bottom: 1px solid #3498db;
+    padding-bottom: 0.2em;
+}
+
+.custom-header {
+    border-bottom-width: 2px;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+h2 {
+    font-size: 1.4em;
+}
+
+h3, .data-source {
+    font-size: 1.2em;
+}
+
+h4, h5, h6 {
+    font-size: 1.05em;
+}
+
+.title {
+    color: #3498db;
+    font-size: 1.9em;
+    margin-bottom: 0.5em;
+}
+
+.quarto-title-block .quarto-title-banner {
+    background-color: #ecf0f1;
+    padding: 1em 0;
+}
+
+p {
+    margin-top: 0.4em;
+    margin-bottom: 0.4em;
+}
+
+code, pre, .cell-output {
+    background-color: #f8f8f8;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+code {
+    padding: 2px 4px;
+}
+
+pre, .cell-output {
+    padding: 10px;
+}
+
+.cell-output {
+    background-color: #f9f9f9;
+    margin-top: 10px;
+}
+
+.data-source {
+    margin-top: 30px;
+    margin-bottom: 15px;
+}
+
+.feature-list {
+    background-color: #f8f9fa;
+    border-left: 4px solid #3498db;
+    padding: 15px;
+    margin-bottom: 20px;
+    columns: 2;
+    -webkit-columns: 2;
+    -moz-columns: 2;
+}
+
+.feature-list ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 20px auto;
+}
