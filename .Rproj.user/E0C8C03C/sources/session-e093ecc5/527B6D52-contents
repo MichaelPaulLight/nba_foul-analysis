@@ -1,0 +1,127 @@
+```{r}
+library(tidyverse)
+library(here)
+```
+
+```{r}
+library(ggthemes)
+
+# Definng a custom theme
+theme_report <- function() {
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Arial", color = "#333333"),
+    plot.title = element_text(face = "bold", size = 16, color = "#2c3e50"),
+    axis.title = element_text(size = 12, color = "#2c3e50"),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+}
+
+# Defining a color palette
+report_colors <- c("#3498db", "#e74c3c", "#2ecc71", "#f39c12", "#9b59b6", 
+                   "#1abc9c", "#d35400", "#34495e", "#7f8c8d", "#2980b9", "#8e44ad")
+```
+
+```{r}
+data <- read_csv("https://raw.githubusercontent.com/atlhawksfanatic/L2M/refs/heads/master/1-tidy/L2M/L2M_stats_nba.csv")
+
+nanoparquet::write_parquet(data, "02-1_data_raw/ltm_raw.parquet")
+
+pbp_data <- nanoparquet::read_parquet("~/Documents/GitHub/nba_l2m/02_data/02-1_data_raw/250225_pbp_gt.parquet")
+
+nanoparquet::write_parquet(pbp_data, "02-1_data_raw/250225_pbp_gt.parquet")
+```
+
+```{r}
+ltm_data <- data |> mutate(gid = as.numeric(gid),
+                       time = time)
+
+pbp_data <- pbp_data |> mutate(clock = ms(clock))
+
+
+```
+
+```{r}
+ly_data <- data |> filter(date > "2023-07-01" & date < "2024-07-01")
+
+ty_data <- data |> filter(date > "2024-07-01" & date < "2025-07-01") 
+
+ly_data |> group_by(decision) |> count(committing) |> arrange(desc(n))
+
+ty_data |> group_by(decision) |> count(committing) |> arrange(desc(n))
+
+ly_data |> select(home_team, away_team, game_id) |> distinct() |> pivot_longer(cols = ends_with("team"), names_to = "team_location", values_to = "team") |> count(team) |> arrange(desc(n))
+
+ty_data |> select(home_team, away_team, game_id) |> distinct() |> pivot_longer(cols = ends_with("team"), names_to = "team_location", values_to = "team") |> count(team) |> arrange(desc(n))
+
+ly_data |> select(home_team, away_team, game_id) |> distinct() |> group_by(home_team, away_team) |> count() |> arrange(n)
+
+ty_data |> select(home_team, away_team, game_id) |> distinct() |> group_by(home_team, away_team) |> count() |> arrange(n)
+
+ly_data |> mutate(
+    team_pair = case_when(
+      home_team < away_team ~ paste(home_team, away_team, sep = " vs "),
+      TRUE ~ paste(away_team, home_team, sep = " vs ")
+    )
+  ) |> 
+  select(team_pair, game_id) |> 
+  distinct() |> 
+  count(team_pair) |> 
+  arrange(desc(n))
+
+ty_data |> mutate(
+    team_pair = case_when(
+      home_team < away_team ~ paste(home_team, away_team, sep = " vs "),
+      TRUE ~ paste(away_team, home_team, sep = " vs ")
+    )
+  ) |> 
+  select(team_pair, game_id) |> 
+  distinct() |> 
+  count(team_pair)|> 
+  arrange(desc(n))
+
+ly_data |> mutate(
+    team_pair = case_when(
+      home_team < away_team ~ paste(home_team, away_team, sep = " vs "),
+      TRUE ~ paste(away_team, home_team, sep = " vs ")
+    )
+  ) |> 
+  select(team_pair, game_id) |> 
+  distinct() |> 
+  count(team_pair) |> 
+  count(n) |> 
+  rename(games_in_data = n,
+         team_pairs = nn)
+
+
+ty_data |> mutate(
+    team_pair = case_when(
+      home_team < away_team ~ paste(home_team, away_team, sep = " vs "),
+      TRUE ~ paste(away_team, home_team, sep = " vs ")
+    )
+  ) |> 
+  select(team_pair, game_id) |> 
+  distinct() |> 
+  count(team_pair) |> 
+  count(n) |> 
+  rename(games_in_data = n,
+         team_pairs = nn)
+
+```
+
+```{r}
+ly_data |> filter(decision %in% c("INC", "IC")) |> 
+  ggplot(aes(x = date, fill = decision)) +
+  geom_histogram() +
+  geom_vline(xintercept = as_date("2024-02-14"))
+
+
+ty_data |> filter(decision %in% c("INC", "IC")) |> 
+  ggplot(aes(x = date, fill = decision)) +
+  geom_histogram() +
+  geom_vline(xintercept = as_date("2025-02-14"))
+
+
+```

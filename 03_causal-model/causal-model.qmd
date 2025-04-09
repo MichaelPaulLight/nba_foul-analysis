@@ -3,46 +3,82 @@
 ---
 
 ```{r}
-library(ggthemes)
-
-# Definng a custom theme
-theme_report <- function() {
-  theme_minimal() +
-  theme(
-    text = element_text(family = "Arial", color = "#333333"),
-    plot.title = element_text(face = "bold", size = 16, color = "#2c3e50"),
-    axis.title = element_text(size = 12, color = "#2c3e50"),
-    axis.text = element_text(size = 10),
-    legend.title = element_text(size = 12, face = "bold"),
-    legend.text = element_text(size = 10)
-  )
-}
-
-# Defining a color palette
-report_colors <- c("#3498db", "#e74c3c", "#2ecc71", "#f39c12", "#9b59b6", 
-                   "#1abc9c", "#d35400", "#34495e", "#7f8c8d", "#2980b9", "#8e44ad")
-```
-
-```{r}
 library(tidyverse)
 library(ggdag)
 library(dagitty)
 ```
 
 ```{r}
-l2m_dag <- dagitty('dag {
-  Time -> League_Policy
+simple_dag <- dagitty('dag {
+  n_fouls -> perceived_foul_risk
 
-  League_Policy -> Observed_Foul_Decision
-  League_Policy -> True_Foul_Decision
+  perceived_foul_risk -> defensive_pressure
+  defensive_pressure -> offensive_shot_taking_opportunity
 
-  True_Foul_Decision -> Observed_Foul_Decision
-  
+  offensive_shot_taking_opportunity -> shot_distance_from_basket 
+  shot_distance_from_basket -> shot_zone
+  shot_zone -> shot_type
 
 }')
 
+simple_dag_dagified <- dagify(perceived_foul_risk ~ n_fouls,
+                     defensive_pressure ~ perceived_foul_risk, 
+                     offensive_shot_taking_opportunity ~ defensive_pressure,
+                     shot_distance_from_basket ~ offensive_shot_taking_opportunity, 
+                     shot_zone ~ shot_distance_from_basket,
+                     n_shots ~ shot_zone,
+                     outcome = "n_shots",
+                     exposure = "n_fouls"
+)
 
-ggdag_status(l2m_dag) +
+ggdag_paths(simple_dag_dagified, layout = "circle")
+
+less_simple_dag <- dagitty('dag {
+  n_fouls -> perceived_foul_risk
+
+  perceived_foul_risk -> offensive_shot_taking_opportunity
+  player -> perceived_foul_risk
+  player -> height -> position
+  player -> weight -> position
+  player -> wingspan ->position
+  
+  position -> defensive_pressure
+
+  offensive_shot_taking_opportunity -> shot_distance_from_basket 
+  shot_distance_from_basket -> shot_zone
+  shot_zone -> shot_type
+
+}')
+
+least_simple_dag <- dagitty('dag {
+  n_fouls -> perceived_foul_risk
+
+  perceived_foul_risk -> offensive_shot_taking_opportunity
+  player -> perceived_foul_risk
+  player -> height ->position
+  player -> weight ->position
+  player -> wingspan ->position
+  
+  position -> defensive_pressure
+  
+  offensive_shooter -> closest_defender_distance
+  offensive_shooter -> distance_from_basket
+
+  defensive_pressure -> closest_defender_distance
+  
+  distance_from_basket -> n_shots
+  closest_defender_distance -> n_shots
+
+  offensive_shot_taking_opportunity -> shot_distance_from_basket 
+  shot_distance_from_basket -> shot_zone
+  shot_zone -> shot_type
+
+}')
+
+ggdag(simple_dag_dagified, node_size = 14) +
+  theme_dag()
+
+ggdag_status(least_simple_dag) +
   theme_dag() +
   geom_dag_point(color = "lightblue", size = 20, alpha = 0.5) +
   geom_dag_text(color = "black", size = 4) +
@@ -52,6 +88,9 @@ ggdag_status(l2m_dag) +
   theme(plot.background = element_rect(fill = "white", color = NA)) +
   scale_x_continuous(expand = expansion(mult = 0.2)) +
   scale_y_continuous(expand = expansion(mult = 0.2))  +
-  ggtitle("Causal Model of Time's Effect on Foul Decisions")
+  ggtitle("Causal Model of Perceived Foul Risk's Effect on Shot Taking")
+
+
+
 ```
 

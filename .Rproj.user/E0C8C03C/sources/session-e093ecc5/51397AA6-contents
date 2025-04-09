@@ -1,0 +1,32 @@
+```{r}
+library(tidyverse)
+library(hoopR)
+library(here)
+library(nanoparquet)
+```
+
+```{r}
+player_logs <- nba_leaguegamelog(season = "2024-25", player_or_team = "P") %>%
+  pluck("LeagueGameLog") %>%
+  clean_names() %>%
+  mutate(team_location = ifelse(str_detect(matchup, "\\@"), "away", "home"),
+         across(c(player_id, team_id), as.numeric))
+
+data_dir <- here::here("02_data", "02-1_data_raw")
+file_pattern <- "\\d+_pbp_gt\\.parquet$"
+
+files <- list.files(data_dir, pattern = file_pattern, full.names = TRUE)
+latest_file <- files[order(file.mtime(files), decreasing = TRUE)][1]
+
+if (length(latest_file) > 0) {
+  existing_pbp <- nanoparquet::read_parquet(latest_file)
+  message("Loaded data from: ", basename(latest_file))
+} else {
+  stop("No matching PBP files found")
+}
+```
+
+```{r}
+
+```
+
