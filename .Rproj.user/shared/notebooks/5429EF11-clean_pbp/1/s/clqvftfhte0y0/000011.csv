@@ -1,1 +1,0 @@
-"0","shot_level_df <- read_parquet(here::here(""02_data"", ""02-2_data_clean"", ""shot_level_defender_matchup_data.parquet""))"

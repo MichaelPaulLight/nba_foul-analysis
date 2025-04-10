@@ -1,0 +1,74 @@
+"0","
+# Create non-aggregated test dataset for detailed analysis
+non_aggregated_data <- shot_df_test |>
+  # Only include games with complete data
+  filter(!(game_id %in% games_with_any_missing)) |>
+  left_join(
+    defender_dashboard,
+    by = join_by(""game_date"", ""period"", ""defender_id"", ""defender_shot_dist_range"")
+  ) |>
+  left_join(
+    closest_defender_dashboard,
+    by = join_by(""game_date"", ""period"", ""offender_id"", ""offender_shot_dist_range"")
+  ) |>
+  mutate(
+    across(ends_with(""fgm""), ~replace_na(., 0)),
+    across(ends_with(""fga""), ~replace_na(., 0)),
+    shot_made_flag = as.numeric(shot_made_flag)
+  ) |>
+  select(
+    game_date:number_original,
+    offender_name, defender_name,
+    action_type:shot_zone_area,
+    shot_distance, shot_made_flag, shot_type,
+    offender_shot_dist_range:defender_shot_dist_range,
+    close_def_dist_range,
+    offender_fga, offender_fgm, defender_fga, defender_fgm,
+    position, height, weight, personal_fouls_during_event
+  )
+"
+"2","Warning in left_join(left_join(filter(shot_df_test, !(game_id %in% games_with_any_missing)),  :"
+"2","
+ "
+"2"," [38;5;232mDetected an unexpected many-to-many relationship between `x` and `y`.
+[36mℹ[38;5;232m Row 1 of `x` matches multiple rows in `y`.
+[36mℹ[38;5;232m Row 53582 of `y` matches multiple rows in `x`.
+[36mℹ[38;5;232m If a many-to-many relationship is expected, set `relationship = ""many-to-many""` to silence this
+  warning.[39m
+"
+"0","# Rename columns in non_aggregated_data for clarity"
+"0","shot_level_defender_matchup_data <- non_aggregated_data |>"
+"0","  rename("
+"0","    # Game context"
+"0","    game_date = game_date,"
+"0","    game_id = game_id,"
+"0","    period = period,"
+"0","    play_number = number_original,"
+"0","    "
+"0","    # Player matchup"
+"0","    shooter = offender_name,"
+"0","    primary_defender = defender_name,"
+"0",""
+"0","    # Shot details"
+"0","    shot_action = action_type,"
+"0","    shot_zone = shot_zone_basic,"
+"0","    shot_area = shot_zone_area,"
+"0","    shot_distance_ft = shot_distance,"
+"0","    shot_made = shot_made_flag,"
+"0","    shot_type = shot_type,"
+"0","    shot_distance_category = offender_shot_dist_range,"
+"0","    defense_distance_category = defender_shot_dist_range,"
+"0","    defender_proximity = close_def_dist_range,"
+"0","    "
+"0","    # Aggregated metrics (kept for reference)"
+"0","    shooter_fga = offender_fga,"
+"0","    shooter_fgm = offender_fgm,"
+"0","    defender_fga = defender_fga,"
+"0","    defender_fgm = defender_fgm,"
+"0","    "
+"0","    # Defender attributes"
+"0","    defender_position = position,"
+"0","    defender_height_in = height,"
+"0","    defender_weight_lb = weight,"
+"0","    defender_foul_count = personal_fouls_during_event"
+"0","  )"
