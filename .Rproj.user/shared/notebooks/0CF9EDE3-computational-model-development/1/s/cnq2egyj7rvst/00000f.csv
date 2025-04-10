@@ -1,0 +1,4 @@
+"0","library(tidyverse)"
+"0","library(brms)"
+"0","source(here::here(""00_R"", ""simulate_shots.R""))"
+"0","source(here::here(""00_R"", ""simulate_shots_sbc.R""))"

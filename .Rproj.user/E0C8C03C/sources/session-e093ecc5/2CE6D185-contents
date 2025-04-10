@@ -1,0 +1,2049 @@
+---
+title: "foul-modeling-workflow_varying-effects_team"
+format: html
+editor: visual
+---
+
+# Purpose of This Document
+
+This template guides you through a Bayesian analysis following McElreath's workflow from Statistical Rethinking. Each section includes explanatory notes that you should replace with your own content.
+
+# Simplest Negative Binomial Model of Foul Effects on Shot Attempts
+
+## Load Packages
+
+```{r}
+#| label: setup
+#| include: false
+
+# Load required packages
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(bayesplot)
+library(dagitty)
+library(ggdag)
+library(SBC)
+library(here)
+```
+
+## Domain Knowledge
+
+Previous Research Summarize key findings from previous research. What do we already know about this system?
+
+Mechanisms Describe the potential mechanisms at work. How might your variables be causally related?
+
+Expected Patterns Based on theory and previous research, what patterns do you expect to see in your data?
+
+### Research Questions
+
+State your research questions clearly and precisely. Good research questions should be:
+
+1.  Specific and well-defined Answerable with your available data
+
+2.  Connected to your theoretical framework.
+
+## Causal Model
+
+### Directed Acyclic Graph (DAG)
+
+Determine which variables to include in your model with the following workflow:
+
+1.  List all of the paths connecting X (the potential cause of interest) and Y (the out- come).
+
+2.  Classify each path by whether it is open or closed. A path is open unless it contains a collider.
+
+3.  Classify each path by whether it is a backdoor path. A backdoor path has an arrow entering X.
+
+4.  If there are any open backdoor paths, decide which variable(s) to condition on to close it (if possible). \[dagitty::impliedConditionalIndependencies(), dagitty::adjustmentSets()\]
+
+```{r}
+
+#| label: dag
+#| fig-cap: "Directed Acyclic Graph representing hypothesized causal relationships"
+#| code-fold: show
+
+# Create your DAG
+# Example:
+defender_dag <- dagitty('dag {
+  Fouls -> ShotAttempts
+  
+  DefenderSkill -> Fouls
+  DefenderSkill -> ShotAttempts
+  
+  Fouls -> DefenderProximity -> ShotAttempts
+  
+  DefenderSkill ->Position 
+  Position -> ShotDistance
+  ShotDistance -> ShotAttempts
+  Team -> DefenderSkill
+  OffensiveSkill -> ShotAttempts
+  OffensiveSkill -> ShotDistance
+  
+  DefenderSkill -> DefenderProximity
+  OffensiveSkill -> DefenderProximity
+}')
+
+# Plot the DAG
+coords <- list(
+  x = c(Fouls = 2, ShotAttempts = 4, 
+        DefenderSkill = 1, DefenderProximity = 3,
+        Position = 0, ShotDistance = 3, 
+        Team = 0, OffensiveSkill = 2),
+  y = c(Fouls = 2, ShotAttempts = 2, 
+        DefenderSkill = 1, DefenderProximity = 1,
+        Position = 0, ShotDistance = 0, 
+        Team = 2, OffensiveSkill = 3)
+)
+
+ggdag_status(defender_dag, layout = coords) +
+  theme_dag() +
+  geom_dag_point(color = "lightblue", size = 20, alpha = 0.5) +
+  geom_dag_text(color = "black", size = 4) +
+  geom_dag_edges(edge_colour = "gray30", 
+                 edge_width = 0.8) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "white", color = NA)) +
+  scale_x_continuous(expand = expansion(mult = 0.2)) +
+  scale_y_continuous(expand = expansion(mult = 0.2))  +
+  ggtitle("Causal Model of Defensive Fouls and Shot Attempts")
+
+ggdag_paths(defender_dag, 
+           from = "Fouls", 
+           to = "ShotAttempts",
+           shadow = TRUE,
+           layout = "nicely") +
+  theme_dag() +
+  geom_dag_point(color = "lightblue", size = 20, alpha = 0.5) +
+  geom_dag_text(color = "black", size = 4) +
+  geom_dag_edges(edge_colour = "gray30", 
+                 edge_width = 0.8) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "white", color = NA)) +
+  scale_x_continuous(expand = expansion(mult = 0.2)) +
+  scale_y_continuous(expand = expansion(mult = 0.2)) +
+  ggtitle("Causal Pathways from Fouls to Shot Attempts")
+
+# Display Implied Conditional Independencies
+
+implied <- impliedConditionalIndependencies(defender_dag)
+
+implied
+
+# Display Adjustment Sets
+
+adjustment_sets <- adjustmentSets(defender_dag, exposure = "Fouls", outcome = "ShotAttempts")
+
+adjustment_sets
+
+```
+
+### DAG Interpretation
+
+Justify the inclusion and exclusion of variables in your model based on the DAG.
+
+Define the relationships in your DAG in terms of:
+
+1.  The Fork
+
+2.  The Pipe
+
+3.  The Collider
+
+4.  The Descendant
+
+## Data Simulation
+
+### Simulate Data Implied by Causal Model
+
+```{r}
+set.seed(42)
+
+generate_synthetic_shots <- function(
+  n_observations = 1000,
+  n_defenders = 50,
+  n_positions = 5,
+  n_teams = 10,
+  seed = 42,
+  return_format = c("all", "shots", "defender_summary", "period_agg")
+) {
+  # Set seed for reproducibility
+  set.seed(seed)
+  
+  # Validate return_format
+  return_format <- match.arg(return_format)
+  
+  # Define constants
+  position_names <- c("PG", "SG", "SF", "PF", "C")
+  shot_distance_ranges <- c("0_through_9_ft", "10_through_23_ft", "24_plus")
+  defender_proximity_ranges <- c("0-2 Feet", "2-4 Feet", "4-6 Feet", "6+ Feet")
+  teams <- paste0("Team_", LETTERS[1:n_teams])
+  
+  # Creating a tibble of defenders
+  defenders <- tibble(
+    defender_id = 1:n_defenders,
+    defender_name = paste0("Player_", 1:n_defenders),
+    position_id = sample(1:n_positions, n_defenders, replace = TRUE),
+    position = position_names[position_id],
+    team = sample(teams, n_defenders, replace = TRUE),
+    defensive_skill = rnorm(n_defenders, 0, 1)
+  )
+  
+  # Creating a tibble of simulated shots
+  simulated_shots <- tibble(
+    shot_id = 1:n_observations,
+    defender_id = sample(defenders$defender_id, n_observations, replace = TRUE)
+  )
+  
+  # Joining defender information
+  simulated_shots <- simulated_shots %>%
+    left_join(defenders, by = "defender_id")
+  
+  # Now fill in the simulated values based on defender characteristics
+  simulated_shots <- simulated_shots %>%
+    mutate(
+      # Simulate fouls based on position and skill
+      position_foul_effect = case_when(
+        position == "C" ~ 1.0,
+        position == "PF" ~ 0.7,
+        position == "SF" ~ 0.3,
+        position == "SG" ~ 0.2,
+        position == "PG" ~ 0.0
+      ),
+      
+      # Defenders with lower skill tend to foul more
+      defender_foul_count = pmin(5, pmax(0, round(rpois(n(), lambda = max(0, 2 - defensive_skill + position_foul_effect))))),
+      
+      # Shot distance influenced by defender position
+      # Guards defend more perimeter shots
+      shot_distance_category = case_when(
+        position %in% c("PG", "SG") & runif(n()) < 0.6 ~ "24_plus",
+        position %in% c("SF") & runif(n()) < 0.4 ~ "24_plus",
+        position %in% c("PF", "C") & runif(n()) < 0.2 ~ "24_plus",
+        position %in% c("PF", "C") & runif(n()) < 0.6 ~ "0_through_9_ft",
+        TRUE ~ "10_through_23_ft"
+      ),
+      
+      # Defender proximity affected by fouls and skill
+      # More fouls -> more distance
+      proximity_base = 2 + defender_foul_count * 0.5 - defensive_skill,
+      proximity_category_id = pmin(4, pmax(1, round(proximity_base))),
+      defender_proximity = defender_proximity_ranges[proximity_category_id],
+      
+      # Shot success probability
+      base_prob = case_when(
+        shot_distance_category == "0_through_9_ft" ~ 0.6,
+        shot_distance_category == "10_through_23_ft" ~ 0.4,
+        shot_distance_category == "24_plus" ~ 0.35
+      ),
+      
+      proximity_effect = case_when(
+        defender_proximity == "0-2 Feet" ~ -0.15,
+        defender_proximity == "2-4 Feet" ~ -0.08,
+        defender_proximity == "4-6 Feet" ~ -0.02,
+        defender_proximity == "6+ Feet" ~ 0.05
+      ),
+      
+      foul_effect = defender_foul_count * 0.02,
+      
+      shot_prob = plogis(qlogis(base_prob) + proximity_effect + foul_effect - defensive_skill * 0.3),
+      
+      shot_made = rbinom(n(), 1, shot_prob)
+    )
+  
+  # Clean up intermediate columns and add game context
+  simulated_shots <- simulated_shots %>%
+    select(
+      shot_id, 
+      defender_id, defender_name, position, team,
+      defender_foul_count, 
+      shot_distance_category, defender_proximity,
+      shot_made,
+      defensive_skill  # Keep for validation
+    ) %>%
+    # Add game context
+    mutate(
+      shots_attempted = 1,
+      period = sample(1:4, n(), replace = TRUE),
+      game_id = sample(1:20, n(), replace = TRUE)
+    )
+  
+  # Create aggregated data
+  defender_summary <- simulated_shots %>%
+    group_by(
+      defender_name, 
+      position, 
+      defender_foul_count,
+      shot_distance_category
+    ) %>%
+    summarize(
+      total_shots = sum(shots_attempted),
+      shots_made = sum(shot_made),
+      fg_pct = shots_made / total_shots,
+      .groups = "drop"
+    )
+  
+  period_agg <- simulated_shots %>%
+    group_by(game_id, period, team, defender_name, position, defender_foul_count) %>%
+    summarize(
+      offender_fga = sum(shots_attempted),
+      offender_fgm = sum(shot_made),
+      offender_shot_dist_range = first(shot_distance_category),
+      close_def_dist_range = first(defender_proximity),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      fouls_scaled = scale(defender_foul_count)[,1],
+      slug_team_def = team
+    )
+  
+  # Return data based on specified format
+  switch(return_format,
+    "all" = list(
+      shots = simulated_shots,
+      shots_by_defender = defender_summary,
+      period_agg = period_agg
+    ),
+    "shots" = simulated_shots,
+    "defender_summary" = defender_summary,
+    "period_agg" = period_agg
+  )
+}
+
+# Example usage:
+# Generate just the period-aggregated data
+example <- generate_synthetic_shots(
+  n_observations = 1000,
+  n_defenders = 50,
+  n_teams = 10,
+  seed = runif(1, min = 0, max = 100),
+  return_format = "period_agg"
+)
+
+```
+
+## Data Loading and Processing
+
+Data Loading and Processing
+
+```{r}
+
+offense_data <- nanoparquet::read_parquet(here("data", "shots_offensive_perspective.parquet"))
+
+offense_model_data <- offense_data |>
+  # Rename columns to match our model formula variables
+  rename(
+    offender_fga = shots_attempted,
+    offender_fgm = shots_made,
+    slug_team_def = defending_team,
+    position = defender_position,
+    offender_shot_dist_range = shot_distance_category,
+    close_def_dist_range = defender_proximity
+  ) |>
+  # Scale fouls for modeling
+  mutate(
+    fouls_scaled = scale(defender_foul_count)[,1]
+  ) |>
+  group_by(game_id, period, slug_team_def, defender, position, 
+           defender_foul_count, fouls_scaled, 
+           offender_shot_dist_range, close_def_dist_range) |>
+  summarize(
+    offender_fga = sum(offender_fga),
+    offender_fgm = sum(offender_fgm),
+    .groups = "drop"
+  ) |> filter(!is.na(position)) # this filters out any observations of defenders who were de-rostered by their team, and so lack position data
+
+# Check the prepared data
+glimpse(offense_model_data)
+summary(offense_model_data)
+
+# Chunking the data for use with brm_multiple
+n_chunks <- 10
+chunk_ids <- sample(1:n_chunks, nrow(offense_model_data), replace = TRUE)
+data_chunks <- list()
+
+for (i in 1:n_chunks) {
+  data_chunks[[i]] <- offense_model_data |>
+    filter(chunk_ids == i)
+  cat("Chunk", i, "has", nrow(data_chunks[[i]]), "observations\n")
+}
+
+set.seed(123) # For reproducibility
+
+# Define the sampling fraction (e.g., 20% of the original data)
+sampling_fraction <- 0.2
+
+# Create stratified sample by team, position, and shot distance
+stratified_sample <- offense_model_data %>%
+  # Group by the stratification variables
+  group_by(slug_team_def, position, offender_shot_dist_range) %>%
+  # Sample within each group
+  slice_sample(prop = sampling_fraction) %>%
+  # Ungroup to return to normal data frame
+  ungroup()
+
+# Check the sample size
+cat("Original data size:", nrow(offense_model_data), "observations\n")
+cat("Stratified sample size:", nrow(stratified_sample), "observations\n")
+
+# Verify the distribution of key variables is maintained
+cat("\nComparing distributions in original vs. sampled data:\n")
+
+# Compare team distribution
+team_orig <- table(offense_model_data$slug_team_def) / nrow(offense_model_data)
+team_sample <- table(stratified_sample$slug_team_def) / nrow(stratified_sample)
+cat("Team distribution correlation:", cor(as.numeric(team_orig), as.numeric(team_sample)), "\n")
+
+# Compare position distribution
+pos_orig <- table(offense_model_data$position) / nrow(offense_model_data)
+pos_sample <- table(stratified_sample$position) / nrow(stratified_sample)
+cat("Position distribution correlation:", cor(as.numeric(pos_orig), as.numeric(pos_sample)), "\n")
+
+# Compare shot distance distribution
+dist_orig <- table(offense_model_data$offender_shot_dist_range) / nrow(offense_model_data)
+dist_sample <- table(stratified_sample$offender_shot_dist_range) / nrow(stratified_sample)
+cat("Shot distance distribution correlation:", cor(as.numeric(dist_orig), as.numeric(dist_sample)), "\n")
+
+nanoparquet::write_parquet(stratified_sample, "stratified-sample_neg-binomial.parquet")
+
+```
+
+## Model Building
+
+### Statistical Model Specification
+
+$$
+x ~ N(mu,sigma)
+mu = alpha + beta *x
+alpha ~ N(0,10)
+beta ~ N(0,2)
+sigma ~ Exponential(1)
+$$
+
+### Computational Model Specification
+
+#### Varying Slopes Model
+
+```{r}
+
+varying_slopes_formula <- bf(
+  offender_fga ~ fouls_scaled + 
+    (1 + fouls_scaled | slug_team_def) + 
+    (1 + fouls_scaled | position) +
+    (1 | offender_shot_dist_range) + 
+    (1 | close_def_dist_range)
+)
+
+varying_slopes_priors <- c(
+  # Population-level effects
+  prior(normal(2, 0.5), class = "Intercept"),
+  prior(normal(0, 0.25), class = "b", coef = "fouls_scaled"),
+  
+  # Team-level varying effects
+  prior(exponential(1), class = "sd", group = "slug_team_def"),
+  prior(exponential(1), class = "sd", group = "slug_team_def", coef = "fouls_scaled"),
+  prior(lkj(2), class = "cor", group = "slug_team_def"),
+  
+  # Position-level varying effects
+  prior(exponential(1), class = "sd", group = "position"),
+  prior(exponential(1), class = "sd", group = "position", coef = "fouls_scaled"),
+  prior(lkj(2), class = "cor", group = "position"),
+  
+  # Other random effects
+  prior(exponential(1), class = "sd", group = "offender_shot_dist_range"),
+  prior(exponential(1), class = "sd", group = "close_def_dist_range"),
+  
+  # Negative binomial dispersion parameter
+  prior(exponential(1), class = "shape")
+)
+
+constrained_varying_slopes_priors <- c(
+  # Population-level effects - tighter prior on intercept
+  prior(normal(1.6, 0.5), class = "Intercept"),  # log(5) ≈ 1.6 is about 5 shots
+  prior(normal(0, 0.2), class = "b", coef = "fouls_scaled"),
+  
+  # Team-level varying effects - tighter
+  prior(exponential(4), class = "sd", group = "slug_team_def"),
+  prior(exponential(4), class = "sd", group = "slug_team_def", coef = "fouls_scaled"),
+  prior(lkj(5), class = "cor", group = "slug_team_def"),
+  
+  # Position-level varying effects - tighter
+  prior(exponential(4), class = "sd", group = "position"),
+  prior(exponential(4), class = "sd", group = "position", coef = "fouls_scaled"),
+  prior(lkj(5), class = "cor", group = "position"),
+  
+  # Other random effects - tighter
+  prior(exponential(4), class = "sd", group = "offender_shot_dist_range"),
+  prior(exponential(4), class = "sd", group = "close_def_dist_range"),
+  
+  # Negative binomial dispersion parameter - more informative
+  prior(gamma(3, 0.5), class = "shape")  # Mode around 4
+)
+
+varying_slopes_priors_sbc <- c(
+  # Population-level effects
+  prior(normal(2, 0.5), class = "Intercept"),
+  prior(normal(0, 0.25), class = "b", coef = "fouls_scaled"),
+  
+  # Team-level varying effects
+  prior(exponential(1), class = "sd", group = "slug_team_def"),
+  prior(exponential(1), class = "sd", group = "slug_team_def", coef = "fouls_scaled"),
+  prior(lkj(2), class = "cor", group = "slug_team_def"),
+  
+  # Position-level varying effects
+  prior(exponential(1), class = "sd", group = "position"),
+  prior(exponential(1), class = "sd", group = "position", coef = "fouls_scaled"),
+  prior(lkj(2), class = "cor", group = "position"),
+  
+  # Other random effects
+  prior(exponential(1), class = "sd", group = "offender_shot_dist_range"),
+  prior(exponential(1), class = "sd", group = "close_def_dist_range")
+)
+
+constrained_varying_slopes_priors_sbc <- c(
+  # Population-level effects - tighter prior on intercept
+  prior(normal(1.6, 0.5), class = "Intercept"),  # log(5) ≈ 1.6 is about 5 shots
+  prior(normal(0, 0.2), class = "b", coef = "fouls_scaled"),
+  
+  # Team-level varying effects - tighter
+  prior(exponential(4), class = "sd", group = "slug_team_def"),
+  prior(exponential(4), class = "sd", group = "slug_team_def", coef = "fouls_scaled"),
+  prior(lkj(5), class = "cor", group = "slug_team_def"),
+  
+  # Position-level varying effects - tighter
+  prior(exponential(4), class = "sd", group = "position"),
+  prior(exponential(4), class = "sd", group = "position", coef = "fouls_scaled"),
+  prior(lkj(5), class = "cor", group = "position"),
+  
+  # Other random effects - tighter
+  prior(exponential(4), class = "sd", group = "offender_shot_dist_range"),
+  prior(exponential(4), class = "sd", group = "close_def_dist_range")
+)
+```
+
+### Prior Predictive Checks
+
+#### Varying Slopes Model
+
+```{r}
+
+varying_slopes_model_prior <- brm(
+  formula = varying_slopes_formula,
+  data = period_agg_by_team,
+  family = negbinomial(),
+  prior = varying_slopes_priors,
+  sample_prior = "only",  # Only sample from priors, don't condition on data
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  seed = 42
+)
+
+varying_slopes_model_prior_constrained <- brm(
+  formula = varying_slopes_formula,
+  data = period_agg_by_team,
+  family = negbinomial(),
+  prior = constrained_varying_slopes_priors,
+  sample_prior = "only",  # Only sample from priors, don't condition on data
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  seed = 42
+)
+
+# Create prediction data for prior predictive check
+prior_pred_data <- expand_grid(
+  fouls_scaled = seq(-2, 2, by = 0.2),
+  slug_team_def = unique(period_agg_by_team$slug_team_def)[1:3],  # Just a few teams
+  position = unique(period_agg_by_team$position)[1:3],  # Just a few positions
+  offender_shot_dist_range = "10_through_23_ft",  # Fix shot distance
+  close_def_dist_range = "2-4 Feet"  # Fix defender proximity
+)
+
+# Generate prior predictions
+prior_predictions <- posterior_predict(
+  varying_slopes_model_prior_constrained, 
+  newdata = prior_pred_data,
+  nsamples = 100
+)
+
+# Reshape predictions for plotting
+prior_pred_df <- data.frame(
+  fouls_scaled = rep(prior_pred_data$fouls_scaled, each = 100),
+  team = rep(prior_pred_data$slug_team_def, each = 100),
+  position = rep(prior_pred_data$position, each = 100),
+  prediction = as.vector(t(prior_predictions))
+)
+
+# Plot prior predictions by team
+ggplot(prior_pred_df, aes(x = fouls_scaled, y = prediction, group = interaction(team, rep(1:100, length(unique(team)))))) +
+  geom_line(alpha = 0.1, color = "blue") +
+  facet_wrap(~ team) +
+  labs(
+    title = "Prior Predictive Check: Team-Varying Effects",
+    subtitle = "Each line represents one draw from the prior",
+    x = "Standardized Fouls",
+    y = "Predicted Shot Attempts"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 20))  # Limit y-axis for better visualization
+
+# Plot prior predictions by position
+ggplot(prior_pred_df, aes(x = fouls_scaled, y = prediction, group = interaction(position, rep(1:100, length(unique(position)))))) +
+  geom_line(alpha = 0.1, color = "red") +
+  facet_wrap(~ position) +
+  labs(
+    title = "Prior Predictive Check: Position-Varying Effects",
+    subtitle = "Each line represents one draw from the prior",
+    x = "Standardized Fouls",
+    y = "Predicted Shot Attempts"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 20))  # Limit y-axis for better visualization
+
+pred_data <- data.frame(
+  fouls_scaled = seq(-2, 2, by = 0.1),
+  slug_team_def = "Team_A",
+  position = "C",
+  offender_shot_dist_range = "10_through_23_ft",
+  close_def_dist_range = "2-4 Feet"
+)
+
+# Generate prior predictions
+prior_preds <- posterior_predict(
+  varying_slopes_model_prior, 
+  newdata = pred_data,
+  nsamples = 100
+)
+
+# Calculate summary statistics for the plot
+plot_data <- data.frame(
+  fouls_scaled = pred_data$fouls_scaled,
+  y_min = apply(prior_preds, 2, quantile, probs = 0.1),
+  y_max = apply(prior_preds, 2, quantile, probs = 0.9),
+  y_median = apply(prior_preds, 2, median)
+)
+
+# Create the plot
+ggplot(plot_data, aes(x = fouls_scaled)) +
+  geom_ribbon(aes(ymin = y_min, ymax = y_max), alpha = 0.3, fill = "skyblue") +
+  geom_line(aes(y = y_median), color = "blue") +
+  labs(
+    title = "Prior Predictive Check for Varying Slopes Model",
+    subtitle = "80% interval of predicted shot attempts (blue ribbon) and median (blue line)",
+    x = "Standardized Fouls",
+    y = "Predicted Shot Attempts"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(0, 20))
+```
+
+### Simulation Based Calibration
+
+constrained prior
+
+```{r}
+synthetic_data <- generate_synthetic_shots(seed = 42, return_format = "period_agg")
+
+generator <- SBC_generator_brms(varying_slopes_formula, data = synthetic_data, prior = constrained_varying_slopes_priors_sbc, 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("brms_varying-slopes_1-100.stan")
+                                )
+
+set.seed(42)
+datasets <- generate_datasets(generator, 100)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100 <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("fourth"))
+
+plot_rank_hist(results_100)
+
+plot_ecdf_diff(results_100)
+
+hist(results_100$stats$rhat)
+
+hist(results_100$stats$ess_bulk)
+
+hist(results_100$stats$z_score)
+
+z_score_results_100 <- results_100$stats$z_score
+
+contraction_result_100 <- 1 - (results_100$stats$sd / prior_sd)**2
+
+plot(contraction_result_100, z_score_results_100, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+```
+
+1000 simulated datasets
+
+```{r}
+synthetic_data <- generate_synthetic_shots(seed = 42, return_format = "period_agg")
+
+generator <- SBC_generator_brms(varying_slopes_formula, data = synthetic_data, prior = constrained_varying_slopes_priors_sbc, 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("brms_varying-slopes_1-100.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator, 1000)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_1000 <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("fifth"))
+
+plot_rank_hist(results_1000)
+
+plot_ecdf_diff(results_1000)
+
+hist(results_1000$stats$rhat)
+
+hist(results_1000$stats$ess_bulk)
+
+hist(results_1000$stats$z_score)
+
+z_score_results_1000 <- results_1000$stats$z_score
+
+contraction_result_1000 <- 1 - (results_1000$stats$sd / prior_sd)**2
+
+plot(contraction_result_1000, z_score_results_1000, col=c("#8F272720"), lwd=2, pch=16, cex=0.5,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+excluded_fits <- results_1000$backend_diagnostics$n_divergent > 0 |
+  results_1000$backend_diagnostics$n_max_treedepth > 0 |
+  results_1000$default_diagnostics$min_ess_tail < 200 |
+  results_1000$default_diagnostics$max_rhat > 1.01
+sbc_res_filtered <- results_1000[!excluded_fits]
+
+plot_sim_estimated(results_1000)
+```
+
+less constrained prior
+
+```{r}
+synthetic_data <- generate_synthetic_shots(seed = 42, return_format = "period_agg")
+
+generator <- SBC_generator_brms(varying_slopes_formula, data = synthetic_data, prior = varying_slopes_priors_sbc, 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("brms_varying-slopes_2-10.stan")
+                                )
+
+set.seed(42)
+datasets <- generate_datasets(generator, 10)
+
+backend <- SBC_backend_brms_from_generator(generator, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_2 <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("third"))
+
+plot_rank_hist(results_2)
+```
+
+Implicit Prior
+
+```{r}
+
+library(bayesim)
+
+precon_data <- synthetic_data |> slice_head(n = 5)
+
+generator <- SBC_generator_brms(varying_slopes_formula, data = synthetic_data, prior = constrained_varying_slopes_priors_sbc, 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("brms_varying-slopes_1-10.stan")
+                                )
+
+generate_datasets(generator, 10)
+
+varying_slopes_model_prior_constrained_sbc <- brm(
+  formula = varying_slopes_formula,
+  data = precon_data,
+  family = negbinomial(),
+  prior = constrained_varying_slopes_priors_sbc,
+  sample_prior = "only",  # Only sample from priors, don't condition on data
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  seed = 42
+)
+
+n_sims <- 5
+
+with_precon_sbc_df <- ifs_SBC(
+  fit = update(varying_slopes_model_prior_constrained_sbc,
+    newdata = precon_data,
+    family = negbinomial(),
+    cores = 4,
+    sample_prior = "no",
+    silent = 2,
+    refresh = 0,
+    init = 0.1
+  ),
+  n_sims = 1,
+  ppred_data_gen = generator,
+  precon_sample = precon_data,
+  truncate = TRUE
+)
+
+```
+
+### Model Fitting
+
+#### Varying slopes model
+
+```{r}
+
+varying_slopes_model_sim <- brm(
+  formula = varying_slopes_formula,
+  data = period_agg_by_team,
+  family = negbinomial(),
+  prior = varying_slopes_priors,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  control = list(adapt_delta = 0.95, max_treedepth = 12),
+  seed = 42,
+  file = "models/varying-slopes-model_negbinom_sim_1.rds"
+)
+
+varying_slopes_model_constrained_sim <- brm(
+  formula = varying_slopes_formula,
+  data = period_agg_by_team,
+  family = negbinomial(),
+  prior = constrained_varying_slopes_priors,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  control = list(adapt_delta = 0.95, max_treedepth = 12),
+  seed = 42,
+  file = "models/varying-slopes-model_negbinom_constrained_sim_1.rds"
+)
+
+# Using brm_multiple for parallel processing
+varying_slopes_model_constrained_real <- brm(
+  formula = varying_slopes_formula,
+  data = data_chunks[1],
+  family = negbinomial(),
+  prior = constrained_varying_slopes_priors,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  control = list(
+    adapt_delta = 0.95,
+    max_treedepth = 12
+  ),
+  seed = 42,
+  file = "models/varying-slopes-model_negbinom_constrained_real_1.rds"
+  )
+
+varying_slopes_model_constrained_real_2 <- brm(
+  formula = varying_slopes_formula,
+  data = stratified_sample,
+  family = negbinomial(),
+  prior = constrained_varying_slopes_priors,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  control = list(
+    adapt_delta = 0.95,
+    max_treedepth = 12
+  ),
+  seed = 42,
+  file = "models/varying-slopes-model_negbinom_constrained_real_2.rds"
+  )
+
+```
+
+## Model Checking
+
+### Computational Diagnostics
+
+```{r}
+
+# Check model summary
+summary(varying_slopes_model_constrained_real_2)
+
+# Check convergence
+mcmc_trace(varying_slopes_model_constrained_real_2)
+
+neff_ratio(varying_slopes_model_constrained_real_2) |>  
+  mcmc_neff()
+```
+
+### Posterior Predictive Checks
+
+```{r}
+# Posterior predictive check
+pp_check_neg_binom <- pp_check(varying_slopes_model_constrained_real_2, ndraws = 50) +
+  labs(title = "Posterior Predictive Check: Simulated Data")
+
+ggsave(filename = "figures/neg-binom_pp_check.png")
+
+# Extract posterior samples
+posterior_samples <- as_draws_df(varying_slopes_model_constrained_real_2)
+
+# Plot the population-level effect of fouls
+pop_effects <- ggplot(posterior_samples, aes(x = b_fouls_scaled)) +
+  geom_density(fill = "skyblue", alpha = 0.5) +
+  labs(
+    title = "Parameter Recovery: Population-Level Foul Effect",
+    x = "Effect of Fouls on Shot Attempts (log scale)",
+    y = "Density"
+  ) +
+  theme_minimal()
+  
+  ggsave("figures/neg-binom_population-effects.png")
+
+
+```
+
+## Model Interpretation
+
+### Parameter Estimates
+
+```{r}
+# Extract team-specific and position-specific varying effects
+team_effects <- ranef(varying_slopes_model_constrained_real_2, summary = TRUE)$slug_team_def
+position_effects <- ranef(varying_slopes_model_constrained_real_2, summary = TRUE)$position
+
+# Prepare team-specific slopes for plotting
+team_slopes <- team_effects[, , "fouls_scaled"] %>%
+  as.data.frame() %>%
+  rownames_to_column("team") %>%
+  arrange(Estimate)
+
+# Plot team-specific slopes
+team_effects <- ggplot(team_slopes, aes(x = reorder(team, Estimate), y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Q2.5, ymax = Q97.5), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_flip() +
+  labs(
+    title = "Team-Specific Effects of Fouls on Shot Attempts",
+    x = "Team",
+    y = "Effect of Fouls on log(Shot Attempts)"
+  ) +
+  theme_minimal()
+
+ggsave("figures/neg-binom_team-effects.png")
+
+# Prepare position-specific slopes for plotting
+position_slopes <- position_effects[, , "fouls_scaled"] %>%
+  as.data.frame() %>%
+  rownames_to_column("position") %>%
+  arrange(Estimate)
+
+# Plot position-specific slopes
+position_effects <- ggplot(position_slopes, aes(x = reorder(position, Estimate), y = Estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Q2.5, ymax = Q97.5), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_flip() +
+  labs(
+    title = "Position-Specific Effects of Fouls on Shot Attempts",
+    x = "Position",
+    y = "Effect of Fouls on log(Shot Attempts)"
+  ) +
+  theme_minimal()
+
+ggsave("figures/neg-binom_position-effects.png")
+```
+
+### Posterior Predictions
+
+```{r}
+simple_pred_data <- data.frame(
+  fouls_scaled = seq(-2, 2, by = 0.5),
+  slug_team_def = unique(data_chunks[[1]]$slug_team_def)[1],
+  position = unique(data_chunks[[1]]$position)[1],
+  offender_shot_dist_range = unique(data_chunks[[1]]$offender_shot_dist_range)[1],
+  close_def_dist_range = unique(data_chunks[[1]]$close_def_dist_range)[1]
+)
+
+# Generate predictions with this simple data
+simple_predictions <- posterior_predict(
+  varying_slopes_model_constrained_real_2, 
+  newdata = simple_pred_data,
+  ndraws = 100
+)
+
+# Create a summary dataframe manually
+simple_summary <- data.frame(
+  fouls_scaled = simple_pred_data$fouls_scaled,
+  mean = colMeans(simple_predictions),
+  lower = apply(simple_predictions, 2, quantile, probs = 0.025),
+  upper = apply(simple_predictions, 2, quantile, probs = 0.975)
+)
+
+# Plot this simple summary
+ggplot(simple_summary, aes(x = fouls_scaled, y = mean)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  labs(
+    title = "Simple Model Predictions",
+    subtitle = paste0("For ", unique(simple_pred_data$position), "s on ", 
+                     unique(simple_pred_data$slug_team_def)),
+    x = "Standardized Fouls",
+    y = "Predicted Shot Attempts"
+  ) +
+  theme_minimal()
+
+# Now try a version with multiple defender proximities
+multi_prox_data <- data.frame()
+for (prox in unique(stratified_sample$close_def_dist_range)[1:min(4, length(unique(stratified_sample$close_def_dist_range)))]) {
+  temp_data <- data.frame(
+    fouls_scaled = seq(-2, 2, by = 0.5),
+    slug_team_def = unique(stratified_sample$slug_team_def)[1],
+    position = unique(stratified_sample$position)[1],
+    offender_shot_dist_range = unique(stratified_sample$offender_shot_dist_range)[1],
+    close_def_dist_range = prox
+  )
+  multi_prox_data <- rbind(multi_prox_data, temp_data)
+}
+
+# Generate predictions
+multi_prox_predictions <- posterior_predict(
+  varying_slopes_model_constrained_real_2, 
+  newdata = multi_prox_data,
+  ndraws = 100
+)
+
+# Create summary manually
+n_fouls <- length(seq(-2, 2, by = 0.5))
+n_prox <- length(unique(multi_prox_data$close_def_dist_range))
+multi_summary <- data.frame()
+
+for (i in 1:n_prox) {
+  idx_start <- (i-1) * n_fouls + 1
+  idx_end <- i * n_fouls
+  
+  temp_summary <- data.frame(
+    fouls_scaled = seq(-2, 2, by = 0.5),
+    close_def_dist_range = rep(unique(multi_prox_data$close_def_dist_range)[i], n_fouls),
+    mean = colMeans(multi_prox_predictions[, idx_start:idx_end]),
+    lower = apply(multi_prox_predictions[, idx_start:idx_end], 2, quantile, probs = 0.025),
+    upper = apply(multi_prox_predictions[, idx_start:idx_end], 2, quantile, probs = 0.975)
+  )
+  
+  multi_summary <- rbind(multi_summary, temp_summary)
+}
+
+# Plot by defender proximity
+ggplot(multi_summary, 
+       aes(x = fouls_scaled, y = mean, color = close_def_dist_range, fill = close_def_dist_range)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, color = NA) +
+  labs(
+    title = "Model Predictions by Defender Proximity",
+    x = "Standardized Fouls",
+    y = "Predicted Shot Attempts",
+    color = "Defender Proximity",
+    fill = "Defender Proximity"
+  ) +
+  theme_minimal() +
+  facet_wrap(~ close_def_dist_range, ncol = 2)
+
+okc_positions <- stratified_sample %>%
+  filter(slug_team_def == "OKC") %>%
+  pull(position) %>%
+  unique()
+
+# Print the positions to verify
+print("OKC Thunder positions:")
+print(okc_positions)
+
+# Create prediction data for different positions on BOS
+okc_positions_data <- expand_grid(
+  fouls_scaled = seq(-2, 2, by = 0.5),
+  slug_team_def = "OKC",  # Thunder
+  position = okc_positions,  # Use the positions we found
+  offender_shot_dist_range = unique(stratified_sample$offender_shot_dist_range)[1],  # Fix shot distance
+  close_def_dist_range = unique(stratified_sample$close_def_dist_range)[1]  # Fix defender proximity
+)
+
+# Generate predictions
+okc_predictions <- posterior_predict(
+  varying_slopes_model_constrained_real_2, 
+  newdata = okc_positions_data,
+  ndraws = 100
+)
+
+# Create summary manually
+n_fouls <- length(seq(-2, 2, by = 0.5))
+n_positions <- length(okc_positions)
+okc_summary <- data.frame()
+
+for (i in 1:n_positions) {
+  idx_start <- (i-1) * n_fouls + 1
+  idx_end <- i * n_fouls
+  
+  temp_summary <- data.frame(
+    fouls_scaled = seq(-2, 2, by = 0.5),
+    position = rep(okc_positions[i], n_fouls),
+    mean = colMeans(okc_predictions[, idx_start:idx_end]),  # Changed from okc_positions to okc_predictions
+    lower = apply(okc_predictions[, idx_start:idx_end], 2, quantile, probs = 0.025),  # Changed from okc_positions to okc_predictions
+    upper = apply(okc_predictions[, idx_start:idx_end], 2, quantile, probs = 0.975)  # Changed from okc_positions to okc_predictions
+  )
+  
+  okc_summary <- rbind(okc_summary, temp_summary)
+}
+
+# Plot by position for BOS
+ggplot(okc_summary, 
+       aes(x = fouls_scaled, y = mean, color = position, fill = position)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, color = NA) +
+  labs(
+    title = "Effect of Fouls on Shot Attempts by Position",
+    subtitle = "Boston Celtics Defenders",
+    x = "Standardized Fouls",
+    y = "Predicted Shot Attempts",
+    color = "Position",
+    fill = "Position"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1") +
+  facet_wrap(~ position, ncol = 2)
+
+```
+
+### Predictor Residual Analysis
+
+```{r}
+
+
+```
+
+### Posterior Predictive Ordinate Analysis
+
+```{r}
+log_lik <- log_lik(varying_slopes_model_constrained_real_2)
+psis_object <- loo::psis(log_lik)
+pareto_k <- psis_object$diagnostics$pareto_k
+
+# Identify influential observations
+# If influential_obs is empty, no observations are considered influential outliers
+
+influential_obs <- which(pareto_k > 0.7)
+if(length(influential_obs) > 0) {
+  print(paste("Influential observations:", paste(influential_obs, collapse=", ")))
+  print(period_agg_by_team[influential_obs, ])
+}
+
+```
+
+### Sensitivity Analysis
+
+```{r}
+
+```
+
+### Counterfactual Analysis
+
+```{r}
+counterfactual_data <- tibble(
+  scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+  fouls_scaled = c(-1, 0, 1),
+  position = "C",  # Fix at center position
+  offender_shot_dist_range = "0_through_9_ft",  # Fix at close range
+  close_def_dist_range = "2-4 Feet - Tight",  # Fix at tight defense
+  slug_team_def = "WAS"  # Fix at one team
+)
+
+# Generate predictions for counterfactuals
+cf_predictions <- fitted(
+  varying_slopes_model_constrained_real_2, 
+  newdata = counterfactual_data,
+  re_formula = NULL,  # Include random effects
+  summary = FALSE  # Return all posterior samples
+)
+
+# The dimensions of cf_predictions are [posterior_samples, scenarios]
+# Let's extract the scenarios correctly
+n_samples <- dim(cf_predictions)[1]
+
+# Calculate differences between scenarios
+diff_high_low <- cf_predictions[, 3] - cf_predictions[, 1]
+diff_high_avg <- cf_predictions[, 3] - cf_predictions[, 2]
+diff_avg_low <- cf_predictions[, 2] - cf_predictions[, 1]
+
+# Summarize differences
+diff_summary <- tibble(
+  comparison = c("High vs. Low Fouls", "High vs. Avg Fouls", "Avg vs. Low Fouls"),
+  mean_diff = c(mean(diff_high_low), mean(diff_high_avg), mean(diff_avg_low)),
+  lower = c(quantile(diff_high_low, 0.025), quantile(diff_high_avg, 0.025), quantile(diff_avg_low, 0.025)),
+  upper = c(quantile(diff_high_low, 0.975), quantile(diff_high_avg, 0.975), quantile(diff_avg_low, 0.975)),
+  prob_positive = c(mean(diff_high_low > 0), mean(diff_high_avg > 0), mean(diff_avg_low > 0))
+)
+
+# Plot differences
+ggplot(diff_summary, aes(x = reorder(comparison, mean_diff), y = mean_diff)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "Causal Effect of Fouls on Shot Attempts",
+    subtitle = "Differences in predicted shot attempts between foul scenarios",
+    x = "Comparison",
+    y = "Difference in Shot Attempts"
+  ) +
+  theme_minimal() +
+  # Add text annotations
+  geom_text(aes(label = sprintf("P(Δ > 0) = %.2f", prob_positive)), 
+            hjust = -0.1, vjust = -0.5)
+
+counterfactual_data <- tibble(
+  scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+  fouls_scaled = c(-1, 0, 1),
+  position = "C",  # Fix at center position
+  offender_shot_dist_range = "0_through_9_ft",  # Fix at close range
+  close_def_dist_range = "2-4 Feet - Tight",  # Fix at tight defense
+  slug_team_def = "BOS"  # Fix at one team
+)
+
+# Generate predictions for counterfactuals
+cf_predictions <- fitted(
+  varying_slopes_model_constrained_real_2, 
+  newdata = counterfactual_data,
+  re_formula = NULL,  # Include random effects
+  summary = FALSE  # Return all posterior samples
+)
+
+# The dimensions of cf_predictions are [posterior_samples, scenarios]
+# Let's extract the scenarios correctly
+n_samples <- dim(cf_predictions)[1]
+
+# Calculate differences between scenarios
+diff_high_low <- cf_predictions[, 3] - cf_predictions[, 1]
+diff_high_avg <- cf_predictions[, 3] - cf_predictions[, 2]
+diff_avg_low <- cf_predictions[, 2] - cf_predictions[, 1]
+
+# Summarize differences
+diff_summary <- tibble(
+  comparison = c("High vs. Low Fouls", "High vs. Avg Fouls", "Avg vs. Low Fouls"),
+  mean_diff = c(mean(diff_high_low), mean(diff_high_avg), mean(diff_avg_low)),
+  lower = c(quantile(diff_high_low, 0.025), quantile(diff_high_avg, 0.025), quantile(diff_avg_low, 0.025)),
+  upper = c(quantile(diff_high_low, 0.975), quantile(diff_high_avg, 0.975), quantile(diff_avg_low, 0.975)),
+  prob_positive = c(mean(diff_high_low > 0), mean(diff_high_avg > 0), mean(diff_avg_low > 0))
+)
+
+# Plot differences
+ggplot(diff_summary, aes(x = reorder(comparison, mean_diff), y = mean_diff)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "Causal Effect of Fouls on Shot Attempts",
+    subtitle = "Differences in predicted shot attempts between foul scenarios",
+    x = "Comparison",
+    y = "Difference in Shot Attempts"
+  ) +
+  theme_minimal() +
+  # Add text annotations
+  geom_text(aes(label = sprintf("P(Δ > 0) = %.2f", prob_positive)), 
+            hjust = -0.1, vjust = -0.5)
+```
+
+```{r}
+# Get unique values for shot distance, defender proximity, and teams
+shot_distances <- unique(stratified_sample$offender_shot_dist_range)
+def_proximities <- unique(stratified_sample$close_def_dist_range)
+teams <- unique(stratified_sample$slug_team_def)[1:min(9, length(unique(stratified_sample$slug_team_def)))]  # Limit to 9 teams for readability
+
+# Create expanded counterfactual data with multiple teams
+expanded_cf_data <- expand_grid(
+  scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+  fouls_scaled = c(-1, 0, 1),
+  position = "C",  # Fix at center position
+  offender_shot_dist_range = shot_distances,  # Vary shot distances
+  close_def_dist_range = def_proximities,  # Vary defender proximities
+  slug_team_def = teams  # Include multiple teams
+)
+
+# Generate predictions for expanded counterfactuals
+expanded_cf_predictions <- fitted(
+  varying_slopes_model_constrained_real_2, 
+  newdata = expanded_cf_data,
+  re_formula = NULL,  # Include random effects
+  summary = FALSE  # Return all posterior samples
+)
+
+# Create a dataframe with predictions for easier manipulation
+n_samples <- dim(expanded_cf_predictions)[1]
+n_scenarios <- nrow(expanded_cf_data)
+
+# Create a unique identifier for each scenario
+expanded_cf_data <- expanded_cf_data %>%
+  mutate(scenario_id = row_number())
+
+# Combine predictions with scenario information
+cf_results <- tibble(
+  scenario_id = rep(1:n_scenarios, each = n_samples),
+  sample_id = rep(1:n_samples, times = n_scenarios),
+  prediction = as.vector(expanded_cf_predictions)
+) %>%
+  left_join(expanded_cf_data, by = "scenario_id")
+
+# Filter for high and low fouls
+high_fouls <- cf_results %>% 
+  filter(scenario == "High Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, slug_team_def, high_pred = prediction)
+
+low_fouls <- cf_results %>% 
+  filter(scenario == "Low Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, slug_team_def, low_pred = prediction)
+
+# Join the datasets
+diff_data <- high_fouls %>%
+  inner_join(low_fouls, by = c("sample_id", "offender_shot_dist_range", "close_def_dist_range", "slug_team_def")) %>%
+  mutate(diff_high_low = high_pred - low_pred)
+
+# Calculate summary statistics for differences by team
+cf_diff_by_team <- diff_data %>%
+  group_by(slug_team_def, offender_shot_dist_range, close_def_dist_range) %>%
+  summarize(
+    mean_diff = mean(diff_high_low),
+    lower = quantile(diff_high_low, 0.025),
+    upper = quantile(diff_high_low, 0.975),
+    prob_positive = mean(diff_high_low > 0),
+    .groups = "drop"
+  )
+
+# Create a heatmap faceted by team
+# Red cells indicate scenarios where higher foul counts lead to significantly more shot attempts, while blue cells show situations where fouls have minimal or negative effects.
+
+center_effects <- ggplot(cf_diff_by_team, 
+       aes(x = offender_shot_dist_range, y = close_def_dist_range, fill = mean_diff)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  facet_wrap(~ slug_team_def, ncol = 3) +  # Facet by team with 3 columns
+  labs(
+    title = "Effect of High vs. Low Fouls on Shot Attempts by Team",
+    subtitle = "Heatmap of differences across shot distances and defender proximities",
+    x = "Shot Distance",
+    y = "Defender Proximity",
+    fill = "Difference\n(High - Low)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+    axis.text.y = element_text(size = 7),
+    strip.text = element_text(face = "bold"),
+    panel.spacing = unit(0.5, "lines")
+  )
+
+ggsave("figures/center_effects.png")
+
+# Create expanded counterfactual data with multiple teams
+expanded_cf_data <- expand_grid(
+  scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+  fouls_scaled = c(-1, 0, 1),
+  position = "G",  # Fix at center position
+  offender_shot_dist_range = shot_distances,  # Vary shot distances
+  close_def_dist_range = def_proximities,  # Vary defender proximities
+  slug_team_def = teams  # Include multiple teams
+)
+
+# Generate predictions for expanded counterfactuals
+expanded_cf_predictions <- fitted(
+  varying_slopes_model_constrained_real_2, 
+  newdata = expanded_cf_data,
+  re_formula = NULL,  # Include random effects
+  summary = FALSE  # Return all posterior samples
+)
+
+# Create a dataframe with predictions for easier manipulation
+n_samples <- dim(expanded_cf_predictions)[1]
+n_scenarios <- nrow(expanded_cf_data)
+
+# Create a unique identifier for each scenario
+expanded_cf_data <- expanded_cf_data %>%
+  mutate(scenario_id = row_number())
+
+# Combine predictions with scenario information
+cf_results <- tibble(
+  scenario_id = rep(1:n_scenarios, each = n_samples),
+  sample_id = rep(1:n_samples, times = n_scenarios),
+  prediction = as.vector(expanded_cf_predictions)
+) %>%
+  left_join(expanded_cf_data, by = "scenario_id")
+
+# Filter for high and low fouls
+high_fouls <- cf_results %>% 
+  filter(scenario == "High Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, slug_team_def, high_pred = prediction)
+
+low_fouls <- cf_results %>% 
+  filter(scenario == "Low Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, slug_team_def, low_pred = prediction)
+
+# Join the datasets
+diff_data <- high_fouls %>%
+  inner_join(low_fouls, by = c("sample_id", "offender_shot_dist_range", "close_def_dist_range", "slug_team_def")) %>%
+  mutate(diff_high_low = high_pred - low_pred)
+
+# Calculate summary statistics for differences by team
+cf_diff_by_team <- diff_data %>%
+  group_by(slug_team_def, offender_shot_dist_range, close_def_dist_range) %>%
+  summarize(
+    mean_diff = mean(diff_high_low),
+    lower = quantile(diff_high_low, 0.025),
+    upper = quantile(diff_high_low, 0.975),
+    prob_positive = mean(diff_high_low > 0),
+    .groups = "drop"
+  )
+
+# Create a heatmap faceted by team
+# Red cells indicate scenarios where higher foul counts lead to significantly more shot attempts, while blue cells show situations where fouls have minimal or negative effects.
+
+guard_effects <- ggplot(cf_diff_by_team, 
+       aes(x = offender_shot_dist_range, y = close_def_dist_range, fill = mean_diff)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  facet_wrap(~ slug_team_def, ncol = 3) +  # Facet by team with 3 columns
+  labs(
+    title = "Effect of High vs. Low Fouls on Shot Attempts by Team",
+    subtitle = "Heatmap of differences across shot distances and defender proximities",
+    x = "Shot Distance",
+    y = "Defender Proximity",
+    fill = "Difference\n(High - Low)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+    axis.text.y = element_text(size = 7),
+    strip.text = element_text(face = "bold"),
+    panel.spacing = unit(0.5, "lines")
+  )
+
+guard_effects
+center_effects
+ggsave("figures/guard_effects.png")
+
+```
+
+```{r}
+# Get unique positions
+positions <- unique(stratified_sample$position)
+
+# Create expanded counterfactual data for DEN with different positions
+den_positions_cf_data <- expand_grid(
+  scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+  fouls_scaled = c(-1, 0, 1),
+  position = positions,  # Include all positions
+  offender_shot_dist_range = shot_distances,  # Vary shot distances
+  close_def_dist_range = def_proximities,  # Vary defender proximities
+  slug_team_def = "DEN"  # Focus on Denver Nuggets
+)
+
+# Generate predictions for expanded counterfactuals
+den_positions_cf_predictions <- fitted(
+  varying_slopes_model_constrained_real_2, 
+  newdata = den_positions_cf_data,
+  re_formula = NULL,  # Include random effects
+  summary = FALSE  # Return all posterior samples
+)
+
+# Create a dataframe with predictions for easier manipulation
+n_samples <- dim(den_positions_cf_predictions)[1]
+n_scenarios <- nrow(den_positions_cf_data)
+
+# Create a unique identifier for each scenario
+den_positions_cf_data <- den_positions_cf_data %>%
+  mutate(scenario_id = row_number())
+
+# Combine predictions with scenario information
+den_cf_results <- tibble(
+  scenario_id = rep(1:n_scenarios, each = n_samples),
+  sample_id = rep(1:n_samples, times = n_scenarios),
+  prediction = as.vector(den_positions_cf_predictions)
+) %>%
+  left_join(den_positions_cf_data, by = "scenario_id")
+
+# Filter for high and low fouls
+den_high_fouls <- den_cf_results %>% 
+  filter(scenario == "High Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, position, high_pred = prediction)
+
+den_low_fouls <- den_cf_results %>% 
+  filter(scenario == "Low Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, position, low_pred = prediction)
+
+# Join the datasets
+den_diff_data <- den_high_fouls %>%
+  inner_join(den_low_fouls, by = c("sample_id", "offender_shot_dist_range", "close_def_dist_range", "position")) %>%
+  mutate(diff_high_low = high_pred - low_pred)
+
+# Calculate summary statistics for differences by position
+den_diff_by_position <- den_diff_data %>%
+  group_by(position, offender_shot_dist_range, close_def_dist_range) %>%
+  summarize(
+    mean_diff = mean(diff_high_low),
+    lower = quantile(diff_high_low, 0.025),
+    upper = quantile(diff_high_low, 0.975),
+    prob_positive = mean(diff_high_low > 0),
+    .groups = "drop"
+  )
+
+# Find global min and max for consistent color scaling
+global_min <- min(den_diff_by_position$mean_diff)
+global_max <- max(den_diff_by_position$mean_diff)
+
+# Create the heatmap faceted by position
+ggplot(den_diff_by_position, 
+       aes(x = offender_shot_dist_range, y = close_def_dist_range, fill = mean_diff)) +
+  geom_tile() +
+  geom_text(
+    aes(label = sprintf("%.2f", mean_diff)),
+    size = 3
+  ) +
+  scale_fill_gradient2(
+    low = "blue", 
+    mid = "white", 
+    high = "red", 
+    midpoint = 0,
+    limits = c(global_min, global_max)  # Use global limits for consistent colors
+  ) +
+  facet_wrap(~ position, ncol = 2) +
+  labs(
+    title = "Denver Nuggets: Effect of Fouls on Shot Attempts by Position",
+    subtitle = "Difference between high and low foul scenarios",
+    x = "Shot Distance",
+    y = "Defender Proximity",
+    fill = "Difference\n(High - Low)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8),
+    strip.text = element_text(face = "bold", size = 10),
+    panel.spacing = unit(0.5, "lines"),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 10)
+  )
+
+# Get unique positions
+positions <- unique(stratified_sample$position)
+
+# Create expanded counterfactual data for PHX with different positions
+phx_positions_cf_data <- expand_grid(
+  scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+  fouls_scaled = c(-1, 0, 1),
+  position = positions,  # Include all positions
+  offender_shot_dist_range = shot_distances,  # Vary shot distances
+  close_def_dist_range = def_proximities,  # Vary defender proximities
+  slug_team_def = "PHX"  # Focus on Phoenix Suns
+)
+
+# Generate predictions for expanded counterfactuals
+phx_positions_cf_predictions <- fitted(
+  varying_slopes_model_constrained_real_2, 
+  newdata = phx_positions_cf_data,
+  re_formula = NULL,  # Include random effects
+  summary = FALSE  # Return all posterior samples
+)
+
+# Create a dataframe with predictions for easier manipulation
+n_samples <- dim(phx_positions_cf_predictions)[1]
+n_scenarios <- nrow(phx_positions_cf_data)
+
+# Create a unique identifier for each scenario
+phx_positions_cf_data <- phx_positions_cf_data %>%
+  mutate(scenario_id = row_number())
+
+# Combine predictions with scenario information
+phx_cf_results <- tibble(
+  scenario_id = rep(1:n_scenarios, each = n_samples),
+  sample_id = rep(1:n_samples, times = n_scenarios),
+  prediction = as.vector(phx_positions_cf_predictions)
+) %>%
+  left_join(phx_positions_cf_data, by = "scenario_id")
+
+# Filter for high and low fouls
+phx_high_fouls <- phx_cf_results %>% 
+  filter(scenario == "High Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, position, high_pred = prediction)
+
+phx_low_fouls <- phx_cf_results %>% 
+  filter(scenario == "Low Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, position, low_pred = prediction)
+
+# Join the datasets
+phx_diff_data <- phx_high_fouls %>%
+  inner_join(phx_low_fouls, by = c("sample_id", "offender_shot_dist_range", "close_def_dist_range", "position")) %>%
+  mutate(diff_high_low = high_pred - low_pred)
+
+# Calculate summary statistics for differences by position
+phx_diff_by_position <- phx_diff_data %>%
+  group_by(position, offender_shot_dist_range, close_def_dist_range) %>%
+  summarize(
+    mean_diff = mean(diff_high_low),
+    lower = quantile(diff_high_low, 0.025),
+    upper = quantile(diff_high_low, 0.975),
+    prob_positive = mean(diff_high_low > 0),
+    .groups = "drop"
+  )
+
+# Find global min and max for consistent color scaling
+global_min <- min(phx_diff_by_position$mean_diff)
+global_max <- max(phx_diff_by_position$mean_diff)
+
+# Create the heatmap faceted by position
+ggplot(phx_diff_by_position, 
+       aes(x = offender_shot_dist_range, y = close_def_dist_range, fill = mean_diff)) +
+  geom_tile() +
+  geom_text(
+    aes(label = sprintf("%.2f", mean_diff)),
+    size = 3
+  ) +
+  scale_fill_gradient2(
+    low = "blue", 
+    mid = "white", 
+    high = "red", 
+    midpoint = 0,
+    limits = c(global_min, global_max)  # Use global limits for consistent colors
+  ) +
+  facet_wrap(~ position, ncol = 2) +
+  labs(
+    title = "Phoenix Suns: Effect of Fouls on Shot Attempts by Position",
+    subtitle = "Difference between high and low foul scenarios",
+    x = "Shot Distance",
+    y = "Defender Proximity",
+    fill = "Difference\n(High - Low)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8),
+    strip.text = element_text(face = "bold", size = 10),
+    panel.spacing = unit(0.5, "lines"),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 10)
+  )
+
+# Function to create position-based foul effect heatmaps for any team
+create_team_position_heatmap <- function(team_code, model, stratified_sample) {
+  # Get unique positions and shot distances/defender proximities
+  positions <- unique(stratified_sample$position)
+  shot_distances <- unique(stratified_sample$offender_shot_dist_range)
+  def_proximities <- unique(stratified_sample$close_def_dist_range)
+  
+  team_name <- team_code  # Fallback if team code not found
+  
+  # Create expanded counterfactual data for the team with different positions
+  team_positions_cf_data <- expand_grid(
+    scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+    fouls_scaled = c(-1, 0, 1),
+    position = positions,
+    offender_shot_dist_range = shot_distances,
+    close_def_dist_range = def_proximities,
+    slug_team_def = team_code
+  )
+  
+  # Generate predictions for expanded counterfactuals
+  team_positions_cf_predictions <- fitted(
+    model, 
+    newdata = team_positions_cf_data,
+    re_formula = NULL,  # Include random effects
+    summary = FALSE  # Return all posterior samples
+  )
+  
+  # Create a dataframe with predictions for easier manipulation
+  n_samples <- dim(team_positions_cf_predictions)[1]
+  n_scenarios <- nrow(team_positions_cf_data)
+  
+  # Create a unique identifier for each scenario
+  team_positions_cf_data <- team_positions_cf_data %>%
+    mutate(scenario_id = row_number())
+  
+  # Combine predictions with scenario information
+  team_cf_results <- tibble(
+    scenario_id = rep(1:n_scenarios, each = n_samples),
+    sample_id = rep(1:n_samples, times = n_scenarios),
+    prediction = as.vector(team_positions_cf_predictions)
+  ) %>%
+    left_join(team_positions_cf_data, by = "scenario_id")
+  
+  # Filter for high and low fouls
+  team_high_fouls <- team_cf_results %>% 
+    filter(scenario == "High Fouls") %>%
+    select(sample_id, offender_shot_dist_range, close_def_dist_range, position, high_pred = prediction)
+  
+  team_low_fouls <- team_cf_results %>% 
+    filter(scenario == "Low Fouls") %>%
+    select(sample_id, offender_shot_dist_range, close_def_dist_range, position, low_pred = prediction)
+  
+  # Join the datasets
+  team_diff_data <- team_high_fouls %>%
+    inner_join(team_low_fouls, by = c("sample_id", "offender_shot_dist_range", "close_def_dist_range", "position")) %>%
+    mutate(diff_high_low = high_pred - low_pred)
+  
+  # Calculate summary statistics for differences by position
+  team_diff_by_position <- team_diff_data %>%
+    group_by(position, offender_shot_dist_range, close_def_dist_range) %>%
+    summarize(
+      mean_diff = mean(diff_high_low),
+      lower = quantile(diff_high_low, 0.025),
+      upper = quantile(diff_high_low, 0.975),
+      prob_positive = mean(diff_high_low > 0),
+      .groups = "drop"
+    )
+  
+  # Find global min and max for consistent color scaling
+  global_min <- min(team_diff_by_position$mean_diff)
+  global_max <- max(team_diff_by_position$mean_diff)
+  
+  # Create the heatmap faceted by position
+  p <- ggplot(team_diff_by_position, 
+         aes(x = offender_shot_dist_range, y = close_def_dist_range, fill = mean_diff)) +
+    geom_tile() +
+    geom_text(
+      aes(label = sprintf("%.2f", mean_diff)),
+      size = 3
+    ) +
+    scale_fill_gradient2(
+      low = "blue", 
+      mid = "white", 
+      high = "red", 
+      midpoint = 0,
+      limits = c(global_min, global_max)  # Use global limits for consistent colors
+    ) +
+    facet_wrap(~ position, ncol = 2) +
+    labs(
+      title = paste0(team_name, ": Effect of Fouls on Shot Attempts by Position"),
+      subtitle = "Difference between high and low foul scenarios",
+      x = "Shot Distance",
+      y = "Defender Proximity",
+      fill = "Difference\n(High - Low)"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 8),
+      strip.text = element_text(face = "bold", size = 10),
+      panel.spacing = unit(0.5, "lines"),
+      plot.title = element_text(face = "bold"),
+      plot.subtitle = element_text(size = 10)
+    )
+  
+  # Generate interpretation text
+  max_position <- positions[which.max(team_diff_by_position %>% 
+                                     group_by(position) %>% 
+                                     summarize(max_effect = max(mean_diff)) %>% 
+                                     pull(max_effect))]
+  
+  max_context <- team_diff_by_position %>% 
+    arrange(desc(mean_diff)) %>% 
+    slice(1)
+  
+  interpretation <- paste0(
+    "For the ", team_name, ", the impact of defender fouls on shot attempts varies significantly by position, with ", 
+    max_position, " defenders showing the strongest positive effect in specific contexts, suggesting that offensive players may be more likely to attack ",
+    max_position, " defenders who are in foul trouble, particularly in ",
+    max_context$offender_shot_dist_range, " shot range situations with ",
+    max_context$close_def_dist_range, " defender proximity."
+  )
+  
+  # Return both the plot and the interpretation
+  return(list(
+    plot = p,
+    interpretation = interpretation,
+    data = team_diff_by_position  # Also return the data for further analysis if needed
+  ))
+}
+
+# Example usage:
+# For Phoenix Suns
+phx_results <- create_team_position_heatmap("PHX", varying_slopes_model_constrained_real_2, stratified_sample)
+print(phx_results$plot)
+cat(phx_results$interpretation, "\n")
+
+# For Denver Nuggets
+den_results <- create_team_position_heatmap("DEN", varying_slopes_model_constrained_real_2, stratified_sample)
+print(den_results$plot)
+cat(den_results$interpretation, "\n")
+
+# For Boston Celtics
+bos_results <- create_team_position_heatmap("BOS", varying_slopes_model_constrained_real_2, stratified_sample)
+print(bos_results$plot)
+cat(bos_results$interpretation, "\n")
+
+# Function to compare two teams side by side
+compare_teams <- function(team1, team2, model, stratified_sample) {
+  team1_results <- create_team_position_heatmap(team1, model, stratified_sample)
+  team2_results <- create_team_position_heatmap(team2, model, stratified_sample)
+  
+  # Combine the data from both teams
+  combined_data <- bind_rows(
+    team1_results$data %>% mutate(team = team1),
+    team2_results$data %>% mutate(team = team2)
+  )
+  
+  # Create a comparison plot
+  comparison_plot <- ggplot(combined_data, 
+                           aes(x = offender_shot_dist_range, y = close_def_dist_range, fill = mean_diff)) +
+    geom_tile() +
+    geom_text(
+      aes(label = sprintf("%.2f", mean_diff)),
+      size = 2.5
+    ) +
+    scale_fill_gradient2(
+      low = "blue", 
+      mid = "white", 
+      high = "red", 
+      midpoint = 0
+    ) +
+    facet_grid(team ~ position) +
+    labs(
+      title = paste0("Comparison: ", team1, " vs. ", team2, " - Effect of Fouls by Position"),
+      subtitle = "Difference between high and low foul scenarios",
+      x = "Shot Distance",
+      y = "Defender Proximity",
+      fill = "Difference\n(High - Low)"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+      axis.text.y = element_text(size = 7),
+      strip.text = element_text(face = "bold", size = 9),
+      panel.spacing = unit(0.5, "lines")
+    )
+  
+  return(comparison_plot)
+}
+
+# Example comparison: Phoenix vs Denver
+phx_vs_den <- compare_teams("PHX", "DEN", varying_slopes_model_constrained_real_2, stratified_sample)
+print(phx_vs_den)
+
+min_vs_den <- compare_teams("MIN", "DEN", varying_slopes_model_constrained_real_2, stratified_sample)
+print(min_vs_den)
+```
+
+```{r}
+# Get all teams
+all_teams <- unique(stratified_sample$slug_team_def)
+
+# Create expanded counterfactual data with all teams
+expanded_cf_data <- expand_grid(
+  scenario = c("Low Fouls", "Average Fouls", "High Fouls"),
+  fouls_scaled = c(-1, 0, 1),
+  position = "C",  # Fix at center position
+  offender_shot_dist_range = shot_distances,  # Vary shot distances
+  close_def_dist_range = def_proximities,  # Vary defender proximities
+  slug_team_def = all_teams  # Include all teams
+)
+
+# Generate predictions for expanded counterfactuals
+expanded_cf_predictions <- fitted(
+  varying_slopes_model_constrained_real_2, 
+  newdata = expanded_cf_data,
+  re_formula = NULL,  # Include random effects
+  summary = FALSE  # Return all posterior samples
+)
+
+# Create a dataframe with predictions for easier manipulation
+n_samples <- dim(expanded_cf_predictions)[1]
+n_scenarios <- nrow(expanded_cf_data)
+
+# Create a unique identifier for each scenario
+expanded_cf_data <- expanded_cf_data %>%
+  mutate(scenario_id = row_number())
+
+# Combine predictions with scenario information
+cf_results <- tibble(
+  scenario_id = rep(1:n_scenarios, each = n_samples),
+  sample_id = rep(1:n_samples, times = n_scenarios),
+  prediction = as.vector(expanded_cf_predictions)
+) %>%
+  left_join(expanded_cf_data, by = "scenario_id")
+
+# Filter for high and low fouls
+high_fouls <- cf_results %>% 
+  filter(scenario == "High Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, slug_team_def, high_pred = prediction)
+
+low_fouls <- cf_results %>% 
+  filter(scenario == "Low Fouls") %>%
+  select(sample_id, offender_shot_dist_range, close_def_dist_range, slug_team_def, low_pred = prediction)
+
+# Join the datasets
+diff_data <- high_fouls %>%
+  inner_join(low_fouls, by = c("sample_id", "offender_shot_dist_range", "close_def_dist_range", "slug_team_def")) %>%
+  mutate(diff_high_low = high_pred - low_pred)
+
+# Calculate summary statistics for differences by team
+cf_diff_by_team <- diff_data %>%
+  group_by(slug_team_def, offender_shot_dist_range, close_def_dist_range) %>%
+  summarize(
+    mean_diff = mean(diff_high_low),
+    lower = quantile(diff_high_low, 0.025),
+    upper = quantile(diff_high_low, 0.975),
+    prob_positive = mean(diff_high_low > 0),
+    .groups = "drop"
+  )
+
+# Create the heatmap function
+create_team_heatmap <- function(team_data, team_name) {
+  # Find the global min and max for consistent color scaling
+  global_min <- min(cf_diff_by_team$mean_diff)
+  global_max <- max(cf_diff_by_team$mean_diff)
+  
+  # Create the plot
+  ggplot(team_data, 
+         aes(x = offender_shot_dist_range, y = close_def_dist_range, fill = mean_diff)) +
+    geom_tile() +
+    scale_fill_gradient2(
+      low = "blue", 
+      mid = "white", 
+      high = "red", 
+      midpoint = 0,
+      limits = c(global_min, global_max)  # Use global limits for consistent colors
+    ) +
+    geom_text(
+      aes(label = sprintf("%.2f", mean_diff)),
+      size = 3
+    ) +
+    labs(
+      title = paste0("Effect of Fouls on Shot Attempts: ", team_name),
+      subtitle = "Difference between high and low foul scenarios",
+      x = "Shot Distance",
+      y = "Defender Proximity",
+      fill = "Difference\n(High - Low)"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(face = "bold"),
+      plot.subtitle = element_text(size = 10),
+      legend.position = "right"
+    )
+}
+
+# Save as PDF with one team per page
+pdf("team_heatmaps.pdf", width = 10, height = 8)
+
+# Add a title page
+title_plot <- ggplot() + 
+  annotate("text", x = 0.5, y = 0.7, size = 8, 
+           label = "Effect of Defender Fouls on Shot Attempts", fontface = "bold") +
+  annotate("text", x = 0.5, y = 0.5, size = 6, 
+           label = "Team-by-Team Analysis") +
+  annotate("text", x = 0.5, y = 0.3, size = 4, 
+           label = paste("Generated on", format(Sys.Date(), "%B %d, %Y"))) +
+  theme_void() +
+  xlim(0, 1) + ylim(0, 1)
+print(title_plot)
+
+# Add an interpretation guide page
+guide_plot <- ggplot() + 
+  annotate("text", x = 0.5, y = 0.9, size = 6, 
+           label = "How to Interpret These Heatmaps", fontface = "bold") +
+  annotate("text", x = 0.5, y = 0.8, size = 4, 
+           label = "Each cell shows the difference in predicted shot attempts between high and low foul scenarios") +
+  annotate("text", x = 0.5, y = 0.7, size = 4, 
+           label = "Red cells: More shots attempted when defenders have high fouls") +
+  annotate("text", x = 0.5, y = 0.6, size = 4, 
+           label = "Blue cells: Fewer shots attempted when defenders have high fouls") +
+  annotate("text", x = 0.5, y = 0.5, size = 4, 
+           label = "White cells: Little to no effect of fouls on shot attempts") +
+  annotate("text", x = 0.5, y = 0.3, size = 4, fontface = "italic",
+           label = "The heatmap reveals how the impact of defender fouls on shot attempts varies across teams,") +
+  annotate("text", x = 0.5, y = 0.25, size = 4, fontface = "italic",
+           label = "with red cells indicating scenarios where higher foul counts lead to significantly more shot attempts,") +
+  annotate("text", x = 0.5, y = 0.2, size = 4, fontface = "italic",
+           label = "while blue cells show situations where fouls have minimal or negative effects—suggesting that") +
+  annotate("text", x = 0.5, y = 0.15, size = 4, fontface = "italic",
+           label = "defensive strategy adjustments may be most beneficial in specific shot distance and defender proximity combinations.") +
+  theme_void() +
+  xlim(0, 1) + ylim(0, 1)
+print(guide_plot)
+
+# Print each team's heatmap on a separate page
+for(team in all_teams) {
+  team_data <- cf_diff_by_team %>% filter(slug_team_def == team)
+  p <- create_team_heatmap(team_data, team)
+  print(p)
+}
+
+# Add a summary page showing teams with largest effects
+team_effect_sizes <- cf_diff_by_team %>%
+  group_by(slug_team_def) %>%
+  summarize(
+    avg_effect = mean(mean_diff),
+    max_effect = max(mean_diff),
+    min_effect = min(mean_diff),
+    range_effect = max_effect - min_effect,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(range_effect))
+
+summary_plot <- ggplot(team_effect_sizes, aes(x = reorder(slug_team_def, range_effect), y = range_effect)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Teams Ranked by Range of Foul Effects",
+    subtitle = "Larger values indicate teams with more variable effects across contexts",
+    x = "Team",
+    y = "Range of Effects (max - min)"
+  ) +
+  theme_minimal()
+print(summary_plot)
+
+dev.off()
+
+# Print a message confirming the PDF was created
+cat("PDF with team heatmaps has been created as 'team_heatmaps.pdf'\n")
+```
+
+## Model Comparison
+
+```{r}
+
+no_interaction_model <- readRDS("models/no-interaction-model_negbinom_sim_1.rds")
+
+varying_loo_sim <- loo(varying_slopes_model_sim)
+no_varying_loo_sim <- loo(no_interaction_model)
+
+varying_loo_real <- loo_subsample(varying_slopes_model_constrained_real)
+
+loo_compare(varying_loo_sim, no_varying_loo_sim)
+
+```
+
+## Conclusion
+
+### Summary of Findings
+
+### Key Results
+
+Summarize your main findings here, connecting them back to your research questions.
+
+### Limitations and Next Steps
+
+Important Considerations Discuss key limitations and potential future directions.

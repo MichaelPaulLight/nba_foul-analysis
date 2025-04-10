@@ -1,0 +1,6 @@
+"0",""
+"0","# Posterior predictive checks"
+"0","pp_check(foul_binomial_model, type = ""dens_overlay"", nsamples = 100)"
+"2","Warning:"
+"2"," Argument 'nsamples' is deprecated. Please use argument 'ndraws' instead.
+"

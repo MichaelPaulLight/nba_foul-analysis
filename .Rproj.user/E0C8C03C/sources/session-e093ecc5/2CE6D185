@@ -1,0 +1,29 @@
+{
+    "id": "2CE6D185",
+    "path": "~/Documents/GitHub/milestone_2/notebooks/neg-binomial_modeling/foul-modeling-workflow_varying-effects_team.qmd",
+    "project_path": null,
+    "type": "quarto_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1744240141568.0,
+    "source_on_save": false,
+    "relative_order": 10,
+    "properties": {
+        "rmdVisualMode": "true",
+        "rmdVisualWrapConfigured": "true",
+        "source_window_id": "",
+        "Source": "Source",
+        "docOutlineVisible": "1",
+        "rmdVisualCollapsedChunks": "",
+        "rmdVisualModeLocation": "20595:0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1743968014,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1743968014,
+    "read_only": false,
+    "read_only_alternatives": []
+}

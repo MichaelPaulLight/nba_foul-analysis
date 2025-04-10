@@ -1,0 +1,198 @@
+```{r}
+library(tidyverse)
+library(brms)
+source(here::here("00_R", "simulate_shots.R"))
+source(here::here("00_R", "simulate_shots_sbc.R"))
+```
+
+First we generate 12,500 synthetic observations using our simulate_l2m function
+
+```{r}
+synthetic_data <- simulate_nba_shots(
+   n_observations = 5000,
+   n_defenders = 100,
+   n_teams = 15,
+   seed = 123
+   )
+
+synthetic_data_aggregated <- synthetic_data  |> 
+  group_by(position, defender_foul_count, shot_distance_category) |> 
+  add_count() |> 
+  summarize(shots_taken = n, shots_made = sum(shot_made)) |> 
+  distinct()
+
+```
+
+Now we define a model formula using brms.
+
+```{r}
+# Define the model formula
+foul_binomial_formula <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + defender_foul_count + position + shot_distance_category +
+    (1 + defender_foul_count | position)
+)
+
+# Set priors
+foul_priors <- c(
+  prior(normal(0, 0.5), class = "b"),  # Fixed effects
+  prior(normal(0, 0.5), class = "sd"),  # Random effect standard deviations
+  prior(lkj(2), class = "cor")  # Random effect correlations
+)
+
+# Perform prior predictive checks
+prior_check_model <- brm(
+  formula = foul_binomial_formula,
+  data = synthetic_data_aggregated,
+  family = binomial(link = "logit"),
+  prior = foul_priors,
+  sample_prior = "only",  # Only sample from priors
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  backend = "cmdstanr"
+)
+
+# Plot prior predictive distributions
+prior_predictions <- posterior_predict(prior_check_model)
+prior_means <- colMeans(prior_predictions)
+
+# Create a data frame for plotting
+prior_plot_data <- data.frame(
+  observed = synthetic_data_aggregated$shots_made,
+  predicted = prior_means,
+  position = synthetic_data_aggregated$position
+)
+
+# Plot prior predictions vs observed
+ggplot(prior_plot_data, aes(x = observed, y = predicted, color = position)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  labs(title = "Prior Predictive Check",
+       x = "Observed Shots Made",
+       y = "Predicted Shots Made") +
+  theme_minimal()
+
+# Check prior distributions of key parameters
+prior_draws <- as_draws_df(prior_check_model)
+
+# Plot prior distributions for fixed effects
+ggplot(prior_draws, aes(x = b_defender_foul_count)) +
+  geom_density(fill = "steelblue", alpha = 0.5) +
+  labs(title = "Prior Distribution: Defender Foul Count Effect",
+       x = "Effect Size",
+       y = "Density") +
+  theme_minimal()
+
+# Plot prior distributions for random effect standard deviations
+ggplot(prior_draws, aes(x = sd_position__Intercept)) +
+  geom_density(fill = "steelblue", alpha = 0.5) +
+  labs(title = "Prior Distribution: Position Random Effect SD",
+       x = "Standard Deviation",
+       y = "Density") +
+  theme_minimal()
+
+```
+
+```{r}
+# Fit the model
+foul_binomial_model <- brm(
+  formula = foul_binomial_formula,
+  data = synthetic_data_aggregated,
+  family = binomial(link = "logit"),
+  prior = foul_priors,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr"
+)
+
+# Check model summary
+summary(foul_binomial_model)
+
+# Check model diagnostics
+plot(foul_binomial_model)
+
+# Posterior predictive checks
+pp_check(foul_binomial_model, type = "dens_overlay", nsamples = 100)
+
+```
+
+
+```{r}
+library(SBC)
+
+generator <- SBC_generator_brms(formula = foul_binomial_formula, family = binomial(link = "logit"), data = synthetic_data_aggregated, prior = foul_priors, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms_generator_2.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator, 500)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_500 <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("second"))
+
+plot_rank_hist(results_500)
+
+plot_ecdf_diff(results_500)
+
+hist(results_100$stats$rhat)
+
+hist(results_100$stats$ess_bulk)
+
+hist(results_100$stats$z_score)
+
+z_score_results_100 <- results_100$stats$z_score
+
+contraction_result_100 <- 1 - (results_100$stats$sd / prior_sd)**2
+
+plot(contraction_result_100, z_score_results_100, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+
+
+```
+```{r}
+foul_bernoulli_formula <- bf(
+  shot_made ~ 
+    1 + defender_foul_count + position + shot_distance_category +
+    (1 + defender_foul_count | position)
+)
+
+gen <- simulate_nba_shots_sbc(n_observations = 1000, n_defenders = 50)
+
+generator_2 <- SBC_generator_function(simulate_nba_shots_sbc, n_observations = 1000, n_defenders = 50)
+
+datasets_func <- generate_datasets(generator_2, 100)
+
+backend_func <- SBC_backend_brms(formula = foul_bernoulli_formula, family = bernoulli(link = "logit"),
+                      backend = "cmdstanr", prior = foul_priors, chains = 1,
+                      template_data = datasets_func$generated[[1]],
+                      control = list(adapt_delta = 0.95),
+                      out_stan_file = file.path("05-1_models/brms_backend_2.stan"))
+
+results_func <- compute_SBC(datasets_func, backend_func,
+                    cache_mode = "results", 
+                    cache_location = file.path("third"))
+
+plot_rank_hist(results_func)
+
+plot_ecdf_diff(results_func)
+
+```
+
