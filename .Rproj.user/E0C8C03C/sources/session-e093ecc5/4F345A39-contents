@@ -1,10 +1,11 @@
 ---
 title: "A Multilevel Bayesian Approach for Inferring the Effect of Fouls on Offensive Patterns in NBA Basketball Games"
-format: 
+execute:
+  echo: false
+  warning: false 
   html:
     toc: false
     number-sections: true
-    css: ../styles.css
     embed-resources: true
 editor: visual
 author: "Michael Light"

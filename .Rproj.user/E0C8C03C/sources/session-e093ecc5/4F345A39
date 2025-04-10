@@ -3,7 +3,7 @@
     "path": "~/Documents/GitHub/nba_foul-analysis/01_report/report_foul-analysis.qmd",
     "project_path": "01_report/report_foul-analysis.qmd",
     "type": "quarto_markdown",
-    "hash": "0",
+    "hash": "612186931",
     "contents": "",
     "dirty": false,
     "created": 1744225782833.0,
@@ -16,16 +16,16 @@
         "Source": "Source",
         "docOutlineVisible": "1",
         "rmdVisualCollapsedChunks": "",
-        "cursorPosition": "54,0",
+        "cursorPosition": "0,0",
         "scrollLine": "4",
-        "rmdVisualModeLocation": "5253:0"
+        "rmdVisualModeLocation": "165:0"
     },
     "folds": "",
-    "lastKnownWriteTime": 1744233912,
+    "lastKnownWriteTime": 1744263889,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1744233912979,
+    "last_content_update": 1744263889639,
     "read_only": false,
     "read_only_alternatives": []
 }
