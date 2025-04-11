@@ -8,7 +8,7 @@
     "dirty": false,
     "created": 1744236320318.0,
     "source_on_save": false,
-    "relative_order": 10,
+    "relative_order": 2,
     "properties": {
         "expression": "defender_data",
         "caption": "defender_data",

@@ -1,0 +1,18 @@
+"0","synthetic_data <- simulate_nba_shots_sbc( "
+"0","   n_observations = 1000,"
+"0","   n_defenders = 30,"
+"0","   n_teams = 6,"
+"0","   seed = 123"
+"0","   )"
+"2","Warning:"
+"2"," [38;5;232mReturning more (or less) than 1 row per `summarise()` group was deprecated in dplyr 1.1.0.
+[36mℹ[38;5;232m Please use `reframe()` instead.
+[36mℹ[38;5;232m When switching from `summarise()` to `reframe()`, remember that `reframe()` always returns an ungrouped
+  data frame and adjust accordingly.
+[90mCall `lifecycle::last_lifecycle_warnings()` to see where this warning was generated.[38;5;232m[39m
+"
+"1","[38;5;232m`summarise()` has grouped output by 'team_id', 'position', 'defender_foul_count',
+'shot_distance_category'. You can override using the `.groups` argument.[39m
+"
+"0","synthetic_df <- synthetic_data$generated"
+"0",""

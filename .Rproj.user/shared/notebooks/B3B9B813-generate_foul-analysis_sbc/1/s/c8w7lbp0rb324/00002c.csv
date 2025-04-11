@@ -1,0 +1,11 @@
+"0","final_dataset <- shot_df |>
+    left_join(shot_characteristics, by = ""shot_id"") |>
+    group_by(defensive_team_id, defender_id, position, defender_foul_count, shot_distance_category) |> 
+    summarize(
+      shots_taken = n(),
+      shots_made = sum(shot_made)
+    ) 
+"
+"1","[38;5;232m`summarise()` has grouped output by 'defensive_team_id', 'defender_id', 'position',
+'defender_foul_count'. You can override using the `.groups` argument.[39m
+"

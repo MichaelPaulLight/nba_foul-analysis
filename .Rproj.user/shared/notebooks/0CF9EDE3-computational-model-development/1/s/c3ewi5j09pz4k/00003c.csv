@@ -1,0 +1,36 @@
+"0","# Create a data frame for plotting
+prior_plot_data <- data.frame(
+  observed = synthetic_df$shots_made,
+  predicted = prior_means,
+  position = synthetic_df$position
+)
+
+# Plot prior predictions vs observed
+ggplot(prior_plot_data, aes(x = observed, y = predicted, color = position)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, linetype = ""dashed"") +
+  labs(title = ""Prior Predictive Check"",
+       x = ""Observed Shots Made"",
+       y = ""Predicted Shots Made"") +
+  theme_minimal()
+
+# Check prior distributions of key parameters
+prior_draws <- as_draws_df(prior_check_model)
+
+# Plot prior distributions for fixed effects
+ggplot(prior_draws, aes(x = b_defender_foul_count)) +
+  geom_density(fill = ""steelblue"", alpha = 0.5) +
+  labs(title = ""Prior Distribution: Defender Foul Count Effect"",
+       x = ""Effect Size"",
+       y = ""Density"") +
+  theme_minimal()
+"
+"0",""
+"0","# Plot prior distributions for random effect standard deviations"
+"0","ggplot(prior_draws, aes(x = sd_position__Intercept)) +"
+"0","  geom_density(fill = ""steelblue"", alpha = 0.5) +"
+"0","  labs(title = ""Prior Distribution: Position Random Effect SD"","
+"0","       x = ""Standard Deviation"","
+"0","       y = ""Density"") +"
+"0","  theme_minimal()"
+"0",""

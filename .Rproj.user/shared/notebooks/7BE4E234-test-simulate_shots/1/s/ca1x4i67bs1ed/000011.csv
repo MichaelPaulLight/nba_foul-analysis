@@ -1,0 +1,20 @@
+"0","small_sim_fac <- simulate_shots(n_observations = 100, n_defenders = 20, foul_count_transform = ""ordered"")
+"
+"2","Warning:"
+"2"," [38;5;232mThere were 100 warnings in `summarize()`.
+The first warning was:[39m
+[38;5;232m[36mℹ[38;5;232m In argument: `foul_effect = mean(defender_foul_count) * 0.02`.
+[36mℹ[38;5;232m In group 1: `team_id = 1` `shot_id = 15`.[39m
+Caused by warning in `mean.default()`:
+[33m![39m argument is not numeric or logical: returning NA
+[38;5;232m[36mℹ[38;5;232m Run ]8;;ide:run:dplyr::last_dplyr_warnings()dplyr::last_dplyr_warnings()]8;; to see the 99 remaining warnings.[39m
+"
+"2","Warning:"
+"2"," [38;5;232mThere were 100 warnings in `mutate()`.
+The first warning was:[39m
+[38;5;232m[36mℹ[38;5;232m In argument: `shot_made = rbinom(1, 1, shot_prob)`.
+[36mℹ[38;5;232m In row 1.[39m
+Caused by warning in `rbinom()`:
+[33m![39m NAs produced
+[38;5;232m[36mℹ[38;5;232m Run ]8;;ide:run:dplyr::last_dplyr_warnings()dplyr::last_dplyr_warnings()]8;; to see the 99 remaining warnings.[39m
+"
