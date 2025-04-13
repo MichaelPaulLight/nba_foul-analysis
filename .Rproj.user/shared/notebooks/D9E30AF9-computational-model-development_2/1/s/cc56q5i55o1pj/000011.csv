@@ -1,0 +1,4 @@
+"0","loo_compare(foul_binomial_model_standardized, foul_binomial_model_mo)
+"
+"2","Error: Model 'foul_binomial_model_standardized' does not contain a precomputed 'loo' criterion. See ?loo_compare.brmsfit for help.
+"

@@ -1,0 +1,26 @@
+{
+    "id": "AB513E2A",
+    "path": "~/Documents/GitHub/nba_foul-analysis/06_model-validation/binomial_varying-slopes.qmd",
+    "project_path": "06_model-validation/binomial_varying-slopes.qmd",
+    "type": "quarto_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": true,
+    "created": 1744499136038.0,
+    "source_on_save": false,
+    "relative_order": 13,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "291,0",
+        "scrollLine": "278"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1744564177,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1744564543254,
+    "read_only": false,
+    "read_only_alternatives": []
+}

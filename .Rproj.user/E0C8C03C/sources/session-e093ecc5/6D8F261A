@@ -1,0 +1,26 @@
+{
+    "id": "6D8F261A",
+    "path": "~/Documents/GitHub/nba_foul-analysis/06_model-validation/binomial_varying-intercepts.qmd",
+    "project_path": "06_model-validation/binomial_varying-intercepts.qmd",
+    "type": "quarto_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1744497999688.0,
+    "source_on_save": false,
+    "relative_order": 12,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "37,0",
+        "scrollLine": "37"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1744499119,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1744499119736,
+    "read_only": false,
+    "read_only_alternatives": []
+}

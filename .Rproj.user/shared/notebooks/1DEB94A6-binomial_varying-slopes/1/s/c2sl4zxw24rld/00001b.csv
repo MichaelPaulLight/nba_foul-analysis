@@ -1,0 +1,101 @@
+"0","team_effects <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_defensive_team[team,]) %>%
+  ggplot(aes(x = r_defensive_team, y = reorder(team, r_defensive_team))) +
+  stat_halfeye() +
+  labs(title = ""Team-Level Random Effects"",
+       x = ""Random Effect"",
+       y = ""Team"") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 6))
+
+# Additional: Position-level random effects
+position_effects <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_defender_position[position,]) %>%
+  ggplot(aes(x = r_defender_position, y = position)) +
+  stat_halfeye() +
+  labs(title = ""Position-Level Random Effects"",
+       x = ""Random Effect"",
+       y = ""Position"") +
+  theme_minimal()
+
+# Improved player effects visualization
+player_effects <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  # Calculate summary statistics for each player
+  group_by(primary_defender) %>%
+  summarise(
+    mean_effect = mean(r_primary_defender),
+    lower_95 = quantile(r_primary_defender, 0.025),
+    upper_95 = quantile(r_primary_defender, 0.975)
+  ) %>%
+  # Order players by mean effect
+  arrange(mean_effect) %>%
+  # Create a factor to maintain ordering in the plot
+  mutate(primary_defender = factor(primary_defender, levels = primary_defender)) %>%
+  # Create the plot
+  ggplot(aes(x = mean_effect, y = primary_defender)) +
+  # Add point estimate
+  geom_point(size = 2) +
+  # Add 95% credible intervals
+  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95), height = 0) +
+  # Add vertical line at 0
+  geom_vline(xintercept = 0, linetype = ""dashed"", color = ""red"") +
+  # Add labels
+  labs(
+    title = ""Player-Level Defensive Effectiveness"",
+    subtitle = ""Ordered by mean effect size (higher = better defense)"",
+    x = ""Defensive Effect (log-odds)"",
+    y = ""Player"",
+    caption = ""Red line indicates average defensive effectiveness""
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 6),
+    plot.title = element_text(size = 14, face = ""bold""),
+    plot.subtitle = element_text(size = 10)
+  )
+
+# Create a focused view of top and bottom performers
+top_bottom_players <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  group_by(primary_defender) %>%
+  summarise(mean_effect = mean(r_primary_defender)) %>%
+  arrange(mean_effect) %>%
+  slice(c(1:10, (n()-9):n())) %>%  # Take top and bottom 10
+  pull(primary_defender)
+
+player_effects_focused <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  filter(primary_defender %in% top_bottom_players) %>%
+  group_by(primary_defender) %>%
+  summarise(
+    mean_effect = mean(r_primary_defender),
+    lower_95 = quantile(r_primary_defender, 0.025),
+    upper_95 = quantile(r_primary_defender, 0.975)
+  ) %>%
+  arrange(mean_effect) %>%
+  mutate(primary_defender = factor(primary_defender, levels = primary_defender)) %>%
+  ggplot(aes(x = mean_effect, y = primary_defender)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95), height = 0) +
+  geom_vline(xintercept = 0, linetype = ""dashed"", color = ""red"") +
+  labs(
+    title = ""Top and Bottom 10 Defensive Players"",
+    subtitle = ""Based on defensive effectiveness"",
+    x = ""Defensive Effect (log-odds)"",
+    y = ""Player""
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(size = 14, face = ""bold""),
+    plot.subtitle = element_text(size = 10)
+  )
+
+# Display both player effect plots
+player_effects
+player_effects_focused
+"
+"0",""
+"0","# Display additional plots"
+"0","team_effects"

@@ -1,0 +1,5 @@
+"0","
+pp_check(foul_binomial_model_vs_default, type = ""dens_overlay"", ndraws = 100)
+pp_check(foul_binomial_model_vs_standardized, type = ""dens_overlay"", ndraws = 100)
+"
+"0","pp_check(foul_binomial_model_vs_mo, type = ""dens_overlay"", ndraws = 100)"

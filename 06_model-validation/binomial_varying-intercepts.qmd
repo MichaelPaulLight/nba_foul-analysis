@@ -1,0 +1,290 @@
+```{r}
+library(tidyverse)
+library(brms)
+library(nanoparquet)
+library(here)
+library(tidybayes)
+```
+
+```{r}
+data <- read_parquet(here("02_data", "02-2_data_clean", "shots_defensive_perspective.parquet"))
+
+# Create a stratified sample
+set.seed(123)
+
+sample_size <- 100000
+
+# Create strata based on key variables
+data_sample <- data |> 
+  select(-defender_height, -defender_weight) |> 
+  drop_na() |> 
+  # First sample games
+  group_by(game_id) |> 
+  sample_frac(size = 1)  |>   # Sample 30% of games
+  ungroup() |> 
+  # Then sample within games
+  group_by(period, defensive_team, defense_distance_category) |> 
+  sample_frac(size = sample_size/nrow(data), replace = FALSE) |> 
+  ungroup()
+
+# Check the sample size
+nrow(data_sample)
+
+data_sample <- data_sample |> 
+  mutate(defender_foul_count = scale(defender_foul_count)[,1])
+```
+
+```{r}
+foul_binomial_formula_varying_intercepts <- bf(
+  shots_defended_made | trials(shots_defended_total) ~ 
+    1 + defender_foul_count +
+    (1 | defense_distance_category) +
+    (1 | defensive_team) +
+    (1 | defender_position) +
+    (1 | primary_defender)
+)
+
+prior_custom_vi <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  prior(student_t(3, 0, 2.5), class = "Intercept"), # Default brms
+  prior(exponential(1), class = "sd")
+)
+```
+
+```{r}
+foul_binomial_model_vi_1 <- brm(
+  formula = foul_binomial_formula_varying_intercepts,
+  data = data_sample,
+  family = binomial(link = "logit"),
+  prior = prior_custom_vi,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_binomial_model_vi_1_10000.rds")
+)
+```
+
+```{r}
+summary(foul_binomial_model_vi_1)
+mcmc_plot(foul_binomial_model_vi_1)
+plot(foul_binomial_model_vi_1)
+
+# Load additional visualization packages
+library(tidybayes)
+library(ggdist)
+library(patchwork)
+
+# 1. Random effects distributions
+random_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_defense_distance_category[category,]) %>%
+  ggplot(aes(x = r_defense_distance_category, y = category)) +
+  stat_halfeye() +
+  labs(title = "Random Effects by Defense Distance Category",
+       x = "Random Effect",
+       y = "Distance Category") +
+  theme_minimal()
+
+# 2. Fixed effects visualization
+fixed_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(b_Intercept, b_defender_foul_count) %>%
+  pivot_longer(cols = c(b_Intercept, b_defender_foul_count)) %>%
+  ggplot(aes(x = value, y = name)) +
+  stat_halfeye() +
+  labs(title = "Fixed Effects",
+       x = "Effect Size",
+       y = "Parameter") +
+  theme_minimal()
+
+# 3. Conditional effects plot
+conditional_effects <- foul_binomial_model_vi_1 %>%
+  conditional_effects("defender_foul_count") %>%
+  plot(plot = FALSE)[[1]] +
+  labs(title = "Effect of Defender Foul Count on Shot Success",
+       x = "Scaled Defender Foul Count",
+       y = "Probability of Shot Success") +
+  theme_minimal()
+
+# 4. Posterior predictive check
+pp_check <- pp_check(foul_binomial_model_vi_1, type = "dens_overlay", ndraws = 50) +
+  labs(title = "Posterior Predictive Check",
+       x = "Shot Success Rate",
+       y = "Density") +
+  theme_minimal()
+
+# Combine all plots
+(random_effects | fixed_effects) / (conditional_effects | pp_check) +
+  plot_annotation(title = "Model Diagnostics and Implications",
+                 theme = theme(plot.title = element_text(hjust = 0.5)))
+
+# Additional: Team-level random effects
+team_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_defensive_team[team,]) %>%
+  ggplot(aes(x = r_defensive_team, y = reorder(team, r_defensive_team))) +
+  stat_halfeye() +
+  labs(title = "Team-Level Random Effects",
+       x = "Random Effect",
+       y = "Team") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 6))
+
+# Additional: Position-level random effects
+position_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_defender_position[position,]) %>%
+  ggplot(aes(x = r_defender_position, y = position)) +
+  stat_halfeye() +
+  labs(title = "Position-Level Random Effects",
+       x = "Random Effect",
+       y = "Position") +
+  theme_minimal()
+
+# Improved player effects visualization
+player_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  # Calculate summary statistics for each player
+  group_by(primary_defender) %>%
+  summarise(
+    mean_effect = mean(r_primary_defender),
+    lower_95 = quantile(r_primary_defender, 0.025),
+    upper_95 = quantile(r_primary_defender, 0.975)
+  ) %>%
+  # Order players by mean effect
+  arrange(mean_effect) %>%
+  # Create a factor to maintain ordering in the plot
+  mutate(primary_defender = factor(primary_defender, levels = primary_defender)) %>%
+  # Create the plot
+  ggplot(aes(x = mean_effect, y = primary_defender)) +
+  # Add point estimate
+  geom_point(size = 2) +
+  # Add 95% credible intervals
+  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95), height = 0) +
+  # Add vertical line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  # Add labels
+  labs(
+    title = "Player-Level Defensive Effectiveness",
+    subtitle = "Ordered by mean effect size (higher = better defense)",
+    x = "Defensive Effect (log-odds)",
+    y = "Player",
+    caption = "Red line indicates average defensive effectiveness"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 6),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10)
+  )
+
+# Create a focused view of top and bottom performers
+top_bottom_players <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  group_by(primary_defender) %>%
+  summarise(mean_effect = mean(r_primary_defender)) %>%
+  arrange(mean_effect) %>%
+  slice(c(1:10, (n()-9):n())) %>%  # Take top and bottom 10
+  pull(primary_defender)
+
+player_effects_focused <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  filter(primary_defender %in% top_bottom_players) %>%
+  group_by(primary_defender) %>%
+  summarise(
+    mean_effect = mean(r_primary_defender),
+    lower_95 = quantile(r_primary_defender, 0.025),
+    upper_95 = quantile(r_primary_defender, 0.975)
+  ) %>%
+  arrange(mean_effect) %>%
+  mutate(primary_defender = factor(primary_defender, levels = primary_defender)) %>%
+  ggplot(aes(x = mean_effect, y = primary_defender)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95), height = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Top and Bottom 10 Defensive Players",
+    subtitle = "Based on defensive effectiveness",
+    x = "Defensive Effect (log-odds)",
+    y = "Player"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10)
+  )
+
+# Display both player effect plots
+player_effects
+player_effects_focused
+
+# Display additional plots
+team_effects
+position_effects
+
+# Player effectiveness by defense distance category
+best_player_distance_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_primary_defender[primary_defender,], r_defense_distance_category[category,]) %>%
+  # Calculate the combined effect for each player and distance category
+  mutate(combined_effect = r_primary_defender + r_defense_distance_category) %>%
+  # Get summary statistics
+  group_by(primary_defender, category) %>%
+  summarise(
+    mean_effect = mean(combined_effect),
+    lower_95 = quantile(combined_effect, 0.025),
+    upper_95 = quantile(combined_effect, 0.975)
+  ) %>%
+  # Get top 10 players by overall effectiveness
+  group_by(primary_defender) %>%
+  mutate(overall_effect = mean(mean_effect)) %>%
+  ungroup() %>%
+  arrange((overall_effect)) %>%
+  slice_head(n = 50)
+
+player_distance_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_primary_defender[primary_defender,], r_defense_distance_category[category,]) %>%
+  # Calculate the combined effect for each player and distance category
+  mutate(combined_effect = r_primary_defender + r_defense_distance_category) %>%
+  # Get summary statistics
+  group_by(primary_defender, category) %>%
+  summarise(
+    mean_effect = mean(combined_effect),
+    lower_95 = quantile(combined_effect, 0.025),
+    upper_95 = quantile(combined_effect, 0.975)
+  ) %>%
+  # Get top 10 players by overall effectiveness
+  group_by(primary_defender) %>%
+  mutate(overall_effect = mean(mean_effect)) %>%
+  ungroup() %>%
+  arrange(desc(overall_effect)) %>%
+  slice_head(n = 50) |> 
+  full_join(best_player_distance_effects)
+
+
+player_distance_effects |> 
+  ggplot(aes(x = mean_effect, y = reorder(primary_defender, overall_effect))) +
+  geom_point(aes(color = category), size = 3) +
+  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95, color = category), height = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Top and Bottom 10 Defensive Players by Distance Category",
+    subtitle = "Showing effectiveness at different defensive distances",
+    x = "Defensive Effect (log-odds)",
+    y = "Player",
+    color = "Defense Distance"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "bottom"
+  ) +
+  scale_color_brewer(palette = "Set1")
+
+
+
+
+```
+

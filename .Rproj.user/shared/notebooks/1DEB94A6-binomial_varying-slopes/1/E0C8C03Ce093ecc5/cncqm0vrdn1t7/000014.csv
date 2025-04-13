@@ -1,0 +1,20 @@
+"0","best_player_distance_effects_position <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,], r_defender_position[defender_position,]) %>%
+  # Calculate the combined effect for each player and distance category
+  mutate(combined_effect = r_primary_defender + r_defender_position) %>%
+  # Get summary statistics
+  group_by(primary_defender, defender_position) %>%
+  summarise(
+    mean_effect = mean(combined_effect),
+    lower_95 = quantile(combined_effect, 0.025),
+    upper_95 = quantile(combined_effect, 0.975)
+  ) %>%
+  # Get top 10 players by overall effectiveness
+  group_by(primary_defender) %>%
+  mutate(overall_effect = mean(mean_effect)) %>%
+  ungroup() %>%
+  arrange((overall_effect)) %>%
+  slice_head(n = 50)
+"
+"1","[38;5;232m`summarise()` has grouped output by 'primary_defender'. You can override using the `.groups` argument.[39m
+"

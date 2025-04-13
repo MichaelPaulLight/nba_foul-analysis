@@ -1,0 +1,96 @@
+"0","best_player_distance_effects <- foul_binomial_model_vi_1 %>%
+  spread_draws(r_primary_defender[primary_defender,], r_defense_distance_category[category,]) %>%
+  # Calculate the combined effect for each player and distance category
+  mutate(combined_effect = r_primary_defender + r_defense_distance_category) %>%
+  # Get summary statistics
+  group_by(primary_defender, category) %>%
+  summarise(
+    mean_effect = mean(combined_effect),
+    lower_95 = quantile(combined_effect, 0.025),
+    upper_95 = quantile(combined_effect, 0.975)
+  ) %>%
+  # Get top players by overall effectiveness
+  group_by(primary_defender) %>%
+  mutate(overall_effect = mean(mean_effect)) %>%
+  ungroup() %>%
+  arrange(desc(overall_effect)) %>%
+  slice_head(n = 10) %>%
+  # Create the plot
+  ggplot(aes(x = mean_effect, y = reorder(primary_defender, overall_effect))) +
+  geom_point(aes(color = category), size = 3) +
+  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95, color = category), height = 0) +
+  geom_vline(xintercept = 0, linetype = ""dashed"", color = ""red"") +
+  labs(
+    title = ""Top 10 Defenders"",
+    subtitle = ""Most effective at preventing shot success"",
+    x = ""Defensive Effect (log-odds)"",
+    y = ""Player"",
+    color = ""Defense Distance""
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(size = 14, face = ""bold""),
+    plot.subtitle = element_text(size = 10),
+    legend.position = ""bottom"",
+    plot.margin = margin(10, 10, 10, 10)
+  ) +
+  scale_color_brewer(palette = ""Set1"") +
+  xlim(-2, 2)
+"
+"1","[38;5;232m`summarise()` has grouped output by 'primary_defender'. You can override using the `.groups` argument.[39m
+"
+"0",""
+"0","worst_player_distance_effects <- foul_binomial_model_vi_1 %>%"
+"0","  spread_draws(r_primary_defender[primary_defender,], r_defense_distance_category[category,]) %>%"
+"0","  # Calculate the combined effect for each player and distance category"
+"0","  mutate(combined_effect = r_primary_defender + r_defense_distance_category) %>%"
+"0","  # Get summary statistics"
+"0","  group_by(primary_defender, category) %>%"
+"0","  summarise("
+"0","    mean_effect = mean(combined_effect),"
+"0","    lower_95 = quantile(combined_effect, 0.025),"
+"0","    upper_95 = quantile(combined_effect, 0.975)"
+"0","  ) %>%"
+"0","  # Get bottom players by overall effectiveness"
+"0","  group_by(primary_defender) %>%"
+"0","  mutate(overall_effect = mean(mean_effect)) %>%"
+"0","  ungroup() %>%"
+"0","  arrange(overall_effect) %>%"
+"0","  slice_head(n = 10) %>%"
+"0","  # Create the plot"
+"0","  ggplot(aes(x = mean_effect, y = reorder(primary_defender, -overall_effect))) +"
+"0","  geom_point(aes(color = category), size = 3) +"
+"0","  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95, color = category), height = 0) +"
+"0","  geom_vline(xintercept = 0, linetype = ""dashed"", color = ""red"") +"
+"0","  labs("
+"0","    title = ""Bottom 10 Defenders"","
+"0","    subtitle = ""Least effective at preventing shot success"","
+"0","    x = ""Defensive Effect (log-odds)"","
+"0","    y = ""Player"","
+"0","    color = ""Defense Distance"""
+"0","  ) +"
+"0","  theme_minimal() +"
+"0","  theme("
+"0","    axis.text.y = element_text(size = 8),"
+"0","    plot.title = element_text(size = 14, face = ""bold""),"
+"0","    plot.subtitle = element_text(size = 10),"
+"0","    legend.position = ""bottom"","
+"0","    plot.margin = margin(10, 10, 10, 10)"
+"0","  ) +"
+"0","  scale_color_brewer(palette = ""Set1"") +"
+"0","  xlim(-2, 2)"
+"1","[38;5;232m`summarise()` has grouped output by 'primary_defender'. You can override using the `.groups` argument.[39m
+"
+"0","# Combine plots with improved layout"
+"0","(best_player_distance_effects | worst_player_distance_effects) +"
+"0","  plot_annotation("
+"0","    title = ""Defensive Effectiveness by Distance Category"","
+"0","    subtitle = ""Comparing the best and worst defenders across different defensive distances"","
+"0","    caption = ""Red line indicates average defensive effectiveness\nHigher values indicate better defense"","
+"0","    theme = theme("
+"0","      plot.title = element_text(size = 16, face = ""bold"", hjust = 0.5),"
+"0","      plot.subtitle = element_text(size = 12, hjust = 0.5),"
+"0","      plot.caption = element_text(size = 10, hjust = 0.5)"
+"0","    )"
+"0","  )"

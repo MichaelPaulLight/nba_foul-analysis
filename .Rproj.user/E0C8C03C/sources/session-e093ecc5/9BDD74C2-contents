@@ -1,0 +1,635 @@
+```{r}
+library(tidyverse)
+library(brms)
+library(SBC)
+library(tidybayes)
+library(loo)
+source(here::here("00_R", "simulate_shots.R"))
+```
+
+This notebook fits three models of varying complexity to simulated datasets using brms default priors
+
+```{r}
+small_sim <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10)
+
+small_sim_standardized <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10, foul_count_transform = "standardized")
+
+small_sim_unsummarized <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10, summarize_data = "FALSE")
+
+small_sim_factor <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10, foul_count_transform = "ordered")
+```
+
+Defining a binomial model of foul effects on shotmaking, simplest to most-complex
+
+```{r}
+foul_binomial_formula_simple <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + defender_foul_count
+)
+
+foul_binomial_formula_varying_intercepts <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + defender_foul_count +
+    (1 | shot_distance_category) +
+    (1 | defensive_team_id) +
+    (1 | position) +
+    (1 | defender_id)
+)
+
+foul_binomial_formula_varying_slopes <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + defender_foul_count +
+    (1 + defender_foul_count | shot_distance_category) +
+    (1 + defender_foul_count | defensive_team_id) +
+    (1 + defender_foul_count | position) + 
+    (1 + defender_foul_count | defender_id)
+)
+
+foul_binomial_formula_simple_mo <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + mo(defender_foul_count)
+)
+
+foul_binomial_formula_varying_intercepts_mo <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + mo(defender_foul_count) +
+    (1 | shot_distance_category) +
+    (1 | defensive_team_id) +
+    (1 | position) +
+    (1 | defender_id)
+)
+
+foul_binomial_formula_varying_slopes_mo <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + mo(defender_foul_count) +
+    (1 + mo(defender_foul_count) | shot_distance_category) +
+    (1 + mo(defender_foul_count) | defensive_team_id) +
+    (1 + mo(defender_foul_count) | position) +
+    (1 + defender_foul_count | defender_id)
+)
+
+```
+
+```{r}
+prior_default <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  prior(student_t(3, 0, 2.5), class = "Intercept") # Default brms
+)
+
+prior_custom_intercept <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  prior(normal(0, 1), class = "Intercept") # Custom
+)
+  
+prior_default_mo <- c(
+  prior(normal(0, 0.5), class = "b"),  # Fixed effects
+  prior(student_t(3, 0, 2.5), class = "Intercept"), 
+  prior(dirichlet(c(1, 1, 1, 2, 2)), class = "simo", coef = "modefender_foul_count1")
+)
+```
+
+```{r}
+foul_binomial_model_prior_default <- brm(
+  formula = foul_binomial_formula_simple,
+  data = small_sim,
+  family = binomial(link = "logit"),
+  prior = prior_default,
+  sample_prior = "only",
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr"
+)
+
+foul_binomial_model_prior_standardized <- brm(
+  formula = foul_binomial_formula_simple,
+  data = small_sim_standardized,
+  family = binomial(link = "logit"),
+  prior = prior_default,
+  sample_prior = "only",
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr"
+)
+
+foul_binomial_model_prior_mo <- brm(
+  formula = foul_binomial_formula_simple_mo,
+  data = small_sim_factor,
+  family = binomial(link = "logit"),
+  prior = prior_default_mo,
+  sample_prior = "only",
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr"
+)
+```
+
+```{r}
+prior_predictions <- posterior_predict(foul_binomial_model_prior_default) 
+prior_means <- colMeans(prior_predictions)
+
+# Create a data frame for plotting
+prior_plot_data <- data.frame(
+  observed = small_sim$shots_made,
+  predicted = prior_means,
+  position = small_sim$position
+)
+
+# Plot prior predictions vs observed
+ggplot(prior_plot_data, aes(x = observed, y = predicted, color = position)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  labs(title = "Prior Predictive Check",
+       x = "Observed Shots Made",
+       y = "Predicted Shots Made") +
+  theme_minimal()
+
+# Check prior distributions of key parameters
+prior_draws <- as_draws_df(foul_binomial_model_prior_default)
+
+# Plot prior distributions for fixed effects
+ggplot(prior_draws, aes(x = b_defender_foul_count)) +
+  geom_density(fill = "steelblue", alpha = 0.5) +
+  labs(title = "Prior Distribution: Defender Foul Count Effect",
+       x = "Effect Size",
+       y = "Density") +
+  theme_minimal()
+```
+SBC
+
+```{r}
+generator_foul_binomial_formula_simple_default_prior <- SBC_generator_brms(formula = foul_binomial_formula_simple, family = binomial(link = "logit"), data = small_sim_standardized, prior = prior_default, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_simple_default-priors.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_simple_default_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_simple_default_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100 <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_simple_default_prior"))
+
+plot_rank_hist(results_100)
+
+plot_ecdf_diff(results_100)
+
+z_score_results_100 <- results_100$stats$z_score
+
+contraction_result_100 <- 1 - (results_100$stats$sd / prior_sd)**2
+
+# contraction vs. z score actually looks pretty good
+
+plot(contraction_result_100, z_score_results_100, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+results_100_default_stats_intercept <- results_100$stats |> filter(variable == "Intercept")   
+
+z_score_results_100_default_intercept <- results_100_default_stats_intercept$z_score
+
+contraction_result_100_default_intercept <- 1 - (results_100_default_stats_intercept$sd / prior_sd)**2
+
+plot(contraction_result_100_default_intercept, z_score_results_100_default_intercept, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+```
+
+```{r}
+generator_foul_binomial_formula_simple_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_simple, family = binomial(link = "logit"), data = small_sim_standardized, prior = prior_custom_intercept, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_simple_custom-priors.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_simple_custom_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_simple_custom_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_custom <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_simple_custom_prior"))
+
+plot_rank_hist(results_100_custom)
+
+plot_ecdf_diff(results_100_custom)
+
+plot_ecdf(results_100_custom)
+
+z_score_results_100_custom <- results_100_custom$stats$z_score |> 
+
+contraction_result_100_custom <- 1 - (results_100_custom$stats$sd / prior_sd)**2
+
+# contraction vs. z score actually looks better than the default priors, despite worse-looking ecdf-diff plots
+
+plot(contraction_result_100_custom, z_score_results_100_custom, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+results_100_stats_intercept <- results_100_custom$stats |> filter(variable == "Intercept")   
+
+z_score_results_100_custom_intercept <- results_100_stats_intercept$z_score
+
+contraction_result_100_custom_intercept <- 1 - (results_100_stats_intercept$sd / prior_sd)**2
+
+plot(contraction_result_100_custom_intercept, z_score_results_100_custom_intercept, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+```
+
+
+```{r}
+generator_foul_binomial_formula_simple_mo_default_prior <- SBC_generator_brms(formula = foul_binomial_formula_simple_mo, family = binomial(link = "logit"), data = small_sim_factor, prior = prior_default_mo, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_simple-mo_default-priors.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_simple_mo_default_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_simple_mo_default_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_mo <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_simple-mo_default_prior"))
+
+plot_rank_hist(results_100_mo)
+
+plot_ecdf_diff(results_100_mo)
+
+plot_ecdf(results_100_mo)
+
+z_score_results_100_mo <- results_100_mo$stats$z_score
+
+contraction_result_100_mo <- 1 - (results_100_mo$stats$sd / prior_sd)**2
+
+# contraction vs. z score looks worse than the continuous version of the model
+
+plot(contraction_result_100_mo, z_score_results_100_mo, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+```
+
+```{r}
+prior_default_vi <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  prior(student_t(3, 0, 2.5), class = "Intercept"), # Default brms
+  prior(student_t(3, 0, 2.5), class = "sd")
+)
+
+prior_custom_vi <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  prior(student_t(3, 0, 2.5), class = "Intercept"), # Default brms
+  prior(exponential(1), class = "sd")
+)
+```
+
+```{r}
+generator_foul_binomial_formula_vi_default_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_intercepts, family = binomial(link = "logit"), data = small_sim_standardized, prior = prior_default_vi, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_vi_default-priors.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_vi_default_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vi_default_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_vi_default <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vi_default_prior"))
+
+plot_rank_hist(results_100_vi_default)
+
+plot_ecdf_diff(results_100_vi_default)
+
+plot_ecdf(results_100_vi_default)
+
+z_score_results_100_vi_default <- results_100_vi_default$stats$z_score
+
+contraction_result_100_vi_default <- 1 - (results_100_vi_default$stats$sd / prior_sd)**2
+
+# contraction vs. z score looks worse than the continuous version of the model
+
+plot(contraction_result_100_vi_default, z_score_results_100_vi_default, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+
+results_100_vi_default_test <- results_100_vi_default$stats |> 
+  mutate(contraction = (sd / prior_sd) ** 2) 
+
+results_100_vi_default_test |> 
+  ggplot(aes(x = contraction, y = z_score)) +
+  geom_point(alpha = .8) +
+  facet_wrap(vars(variable))
+```
+
+```{r}
+generator_foul_binomial_formula_vi_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_intercepts, family = binomial(link = "logit"), data = small_sim_standardized, prior = prior_custom_vi, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_vi_custom-priors.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_vi_custom_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vi_custom_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_vi_custom <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vi_custom_prior"))
+
+plot_rank_hist(results_100_vi_custom)
+
+plot_ecdf_diff(results_100_vi_custom)
+
+plot_ecdf(results_100_vi_custom)
+
+z_score_results_100_vi_custom <- results_100_vi_custom$stats$z_score
+
+contraction_result_100_vi_custom <- 1 - (results_100_vi_custom$stats$sd / prior_sd)**2
+
+# contraction vs. z score looks worse than the continuous version of the model
+
+plot(contraction_result_100_vi_custom, z_score_results_100_vi_custom, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+
+results_100_vi_custom_test <- results_100_vi_custom$stats |> 
+  mutate(contraction = (sd / prior_sd) ** 2) 
+
+results_100_vi_custom_test |> 
+  ggplot(aes(x = contraction, y = z_score)) +
+  geom_point(alpha = .8) +
+  facet_wrap(vars(variable))
+```
+```{r}
+prior_default_vs <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  prior(student_t(3, 0, 2.5), class = "Intercept"), # Default brms
+  prior(student_t(3, 0, 2.5), class = "sd"),
+  prior(lkj(1), class = "cor")
+)
+
+prior_custom_vs <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  prior(student_t(3, 0, 2.5), class = "Intercept"), # Default brms
+  prior(exponential(1), class = "sd"),
+  prior(lkj(2), class = "cor")
+)
+```
+
+```{r}
+generator_foul_binomial_formula_vs_default_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes, family = binomial(link = "logit"), data = small_sim_standardized, prior = prior_default_vs, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_vs_default-priors.stan")
+                                )
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_vs_default_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)  
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vs_default_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_vs_default <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vs_default_prior")) 
+
+plot_rank_hist(results_100_vs_default)
+
+plot_ecdf_diff(results_100_vs_default)
+
+plot_ecdf(results_100_vs_default)
+
+
+
+```
+
+Custom priors seem to have improved sbc. All samples are within theoretical ecdf regions.
+
+```{r}
+generator_foul_binomial_formula_vs_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes, family = binomial(link = "logit"), data = small_sim_standardized, prior = prior_custom_vs, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_vs_custom-priors.stan")
+                                ) 
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_vs_custom_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)  
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vs_custom_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_vs_custom <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vs_custom_prior"))  
+
+plot_rank_hist(results_100_vs_custom)
+
+plot_ecdf_diff(results_100_vs_custom)
+
+plot_ecdf(results_100_vs_custom)
+
+
+
+```
+
+```{r}
+
+foul_binomial_formula_varying_intercepts_cor <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + defender_foul_count +
+    (1 |s| shot_distance_category) +
+    (1 |dt| defensive_team_id) +
+    (1 |p| position) +
+    (1 |d| defender_id)
+)
+
+generator_foul_binomial_formula_vi_cor_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_intercepts_cor, family = binomial(link = "logit"), data = small_sim_standardized, prior = prior_custom_vi, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms-generator_binomial_vi_cor_custom-priors.stan")
+                                ) 
+
+set.seed(42)
+
+datasets <- generate_datasets(generator_foul_binomial_formula_vi_cor_custom_prior, 100)
+
+prior_sd <- calculate_prior_sd(datasets)  
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vi_cor_custom_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_vi_cor_custom <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vi_cor_custom_prior"))  
+
+plot_rank_hist(results_100_vi_cor_custom)
+
+plot_ecdf_diff(results_100_vi_cor_custom)
+
+plot_ecdf(results_100_vi_cor_custom)
+
+```
+This indicates there may be issue with player 37, 47
+
+Player 37 was on court for a stretch where the offense shot 0/4 from one distance category, and relatively high from others.
+
+Player 47 was on court for a stretch where the offense shot very well from two distances and very poorly from the other 2.  
+
+```{r}
+
+player_n <- 37
+
+player_analysis <- small_sim_unsummarized %>%
+  filter(defender_id == player_n) %>%
+  group_by(shot_distance_category) %>%
+  summarise(
+    shots_faced = n(),
+    shots_made = sum(shot_made),
+    shots_made_pct = mean(shot_made),
+    avg_foul_count = mean(defender_foul_count),
+    .groups = "drop"
+  ) %>%
+  arrange(shot_distance_category)
+
+# Print the analysis
+player_analysis
+
+# Visualize player 5's performance by distance
+player_plot <- ggplot(player_analysis, aes(x = shot_distance_category, y = shots_made_pct)) +
+  geom_col(fill = "steelblue", alpha = 0.7) +
+  geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", shots_made, "/", shots_faced, ")")),
+            vjust = -0.5, size = 3) +
+  labs(
+    title = str_c("Player", player_n, "'s Defensive Performance by Shot Distance"),
+    subtitle = "Percentage of shots made when defended",
+    x = "Shot Distance Category",
+    y = "Shot Success Rate"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Show the plot
+player_plot
+
+# Additional analysis: Foul count effect
+player_foul_analysis <- small_sim_unsummarized %>%
+  filter(defender_id == player_n) %>%
+  group_by(defender_foul_count) %>%
+  summarise(
+    shots_faced = n(),
+    shots_made = sum(shot_made),
+    shots_made_pct = mean(shot_made),
+    .groups = "drop"
+  ) %>%
+  arrange(defender_foul_count)
+
+# Print foul analysis
+player_foul_analysis
+
+# Visualize foul effect
+player_foul_plot <- ggplot(player_foul_analysis, aes(x = defender_foul_count, y = shots_made_pct)) +
+  geom_point(size = 3) +
+  geom_line() +
+  geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", shots_made, "/", shots_faced, ")")),
+            vjust = -1, size = 3) +
+  labs(
+    title = str_c("Player", player_n, "'s Defensive Performance by Foul Count"),
+    subtitle = "How foul count affects shot success rate",
+    x = "Defender Foul Count",
+    y = "Shot Success Rate"
+  ) +
+  theme_minimal()
+
+# Show the plot
+player_foul_plot
+
+
+```
+
+```{r}
+foul_binomial_formula_varying_slopes_cor <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + defender_foul_count +
+    (1 + defender_foul_count |s| shot_distance_category) +
+    (1 + defender_foul_count | defensive_team_id) +
+    (1 + defender_foul_count | position) + 
+    (1 + defender_foul_count |d| defender_id)
+)
+
+foul_binomial_model_vi_cor <- brm(
+  formula = foul_binomial_formula_varying_intercepts_cor,
+  data = small_sim_standardized,
+  family = binomial(link = "logit"),
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr"
+)
+
+foul_binomial_model_vi_standardized <- brm(
+  formula = foul_binomial_formula_varying_intercepts,
+  data = small_sim_standardized,
+  family = binomial(link = "logit"),
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr"
+)
+
+```
+

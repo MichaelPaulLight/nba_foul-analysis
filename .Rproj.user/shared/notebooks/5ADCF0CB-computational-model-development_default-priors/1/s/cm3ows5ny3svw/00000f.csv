@@ -1,0 +1,8 @@
+"0","library(loo)
+"
+"2","This is loo version 2.8.0
+"
+"2","- Online documentation and vignettes at mc-stan.org/loo
+"
+"2","- As of v2.0.0 loo defaults to 1 core but we recommend using as many as possible. Use the 'cores' argument or set options(mc.cores = NUM_CORES) for an entire session. 
+"

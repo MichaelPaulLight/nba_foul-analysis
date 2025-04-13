@@ -2,8 +2,8 @@
     "sortOrder": [
         {
             "columnIndex": 2,
-            "ascending": true
+            "ascending": false
         }
     ],
-    "path": "~/Documents/GitHub/nba_foul-analysis/00_R"
+    "path": "~/Documents/GitHub/nba_foul-analysis/06_model-validation"
 }
