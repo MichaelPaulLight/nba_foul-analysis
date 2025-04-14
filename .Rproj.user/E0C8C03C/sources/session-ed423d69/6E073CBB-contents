@@ -1,0 +1,25 @@
+```{r}
+library(hoopR)
+library(tidyverse)
+library(nanoparquet)
+library(janitor)
+library(zoo)
+library(here)
+library(duckplyr)
+```
+
+This notbook takess our non-aggregated shot-level data and aggregates it for use with aggregated binomial models
+
+```{r}
+nonagg_data <- read_parquet(here(clean_data_dir, "shot_level_defender_matchup_data.parquet"))
+```
+
+```{r}
+aggregated_data <- nonagg_data |> 
+  select(game_date:shot_type, defense_distance_category, defender_position, defender_foul_count) |> 
+  group_by(game_id, slug_team_off, slug_team_def, primary_defender, shot_action, shot_zone, shot_area, shot_distance_ft, shot_type, defender_position, defender_foul_count) |> 
+  summarize(shots_defended_made = sum(shot_made),
+         shots_defended_total = n())
+```
+
+There are 21 games in which players play with more than 5 fouls. Spot checking the true number of personal fouls of each of these games, this seems to be a data quality issue having to do with action descriptions. For the purposes of this analysis, we'll drop these games from our sample. 

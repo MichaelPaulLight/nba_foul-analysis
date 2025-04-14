@@ -1,0 +1,48 @@
+"0","non_aggregated_data_all <- shot_df_test |>
+  # Only include games with complete data
+  mutate(
+    shot_made_flag = as.numeric(shot_made_flag)
+  ) |>
+  select(
+    game_date:number_original,
+    offender_name, defender_name,
+    action_type:shot_zone_area,
+    shot_distance, shot_made_flag, shot_type,
+    position, height, weight, personal_fouls_during_event
+  )
+
+# Rename columns in non_aggregated_data for clarity
+shot_level_defender_matchup_data_all <- non_aggregated_data_all |>
+  rename(
+    # Game context
+    game_date = game_date,
+    game_id = game_id,
+    period = period,
+    play_number = number_original,
+    
+    # Player matchup
+    shooter = offender_name,
+    primary_defender = defender_name,
+
+    # Shot details
+    shot_action = action_type,
+    shot_zone = shot_zone_basic,
+    shot_area = shot_zone_area,
+    shot_distance_ft = shot_distance,
+    shot_made = shot_made_flag,
+    shot_type = shot_type,
+    shot_distance_category = offender_shot_dist_range,
+    defense_distance_category = defender_shot_dist_range,
+    
+    # Defender attributes
+    defender_position = position,
+    defender_height_in = height,
+    defender_weight_lb = weight,
+    defender_foul_count = personal_fouls_during_event
+  )
+"
+"1","[1m[33mError[39m in `rename()`:[22m
+[33m![39m Can't rename columns that don't exist.
+[31m✖[39m Column `offender_shot_dist_range` doesn't exist.
+[90mRun `]8;;x-r-run:rlang::last_trace()rlang::last_trace()]8;;` to see where the error occurred.[39m
+"
