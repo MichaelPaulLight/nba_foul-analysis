@@ -1,0 +1,13 @@
+"0","random_effects <- foul_binomial_model_vs_mo_1 %>%
+  spread_draws(r_defense_distance_category[category,], r_defense_distance_category_modefender_foul_count[category,]) %>%
+  ggplot(aes(x = r_defense_distance_category, y = category)) +
+  stat_halfeye() +
+  labs(
+    title = ""Random Intercepts by Defense Distance Category"",
+    x = ""Random Effect"",
+    y = ""Distance Category""
+  ) +
+  theme_minimal()
+"
+"2","Error: No variables found matching spec: r_defense_distance_category_modefender_foul_count[category,]
+"

@@ -1,0 +1,27 @@
+"0","monotonic_effect <- foul_binomial_model_vs_mo_1 %>%
+  spread_draws(b_Intercept, b_modefender_foul_count, simo_modefender_foul_count1[category]) %>%
+  mutate(
+    # Calculate the cumulative effect for each foul count
+    effect_0 = b_Intercept,
+    effect_1 = b_Intercept + b_modefender_foul_count * simo_modefender_foul_count1[1],
+    effect_2 = b_Intercept + b_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2]),
+    effect_3 = b_Intercept + b_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3]),
+    effect_4 = b_Intercept + b_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4]),
+    effect_5 = b_Intercept + b_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4] + simo_modefender_foul_count1[5])
+  ) %>%
+  pivot_longer(cols = starts_with(""effect_""), names_to = ""foul_count"", values_to = ""effect"") %>%
+  mutate(foul_count = as.numeric(str_extract(foul_count, ""\\d+""))) %>%
+  ggplot(aes(x = foul_count, y = effect)) +
+  stat_lineribbon(.width = c(0.5, 0.8, 0.95), alpha = 0.3) +
+  scale_fill_brewer() +
+  labs(
+    title = ""Monotonic Effect of Foul Count on Shot Success"",
+    subtitle = ""Showing cumulative effect of increasing foul counts"",
+    x = ""Defender Foul Count"",
+    y = ""Log-Odds of Shot Success"",
+    fill = ""Credible Interval""
+  ) +
+  theme_minimal()
+"
+"2","Error: No variables found matching spec: b_modefender_foul_count
+"

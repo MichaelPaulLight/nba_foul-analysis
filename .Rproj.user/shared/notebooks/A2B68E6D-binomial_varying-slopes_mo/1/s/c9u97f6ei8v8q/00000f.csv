@@ -1,0 +1,32 @@
+"0","# Then get player-level effects relative to their team
+player_foul_effects <- foul_binomial_model_vs_mo_2 %>%
+  spread_draws(
+    r_primary_defender[primary_defender,],
+    r_primary_defender_modefender_foul_count[primary_defender,],
+    simo_modefender_foul_count1[category]
+  ) %>%
+  # Calculate player-level effects for each foul count
+  mutate(
+    effect_0 = r_primary_defender,
+    effect_1 = r_primary_defender + r_primary_defender_modefender_foul_count * simo_modefender_foul_count1[1],
+    effect_2 = r_primary_defender + r_primary_defender_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2]),
+    effect_3 = r_primary_defender + r_primary_defender_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3]),
+    effect_4 = r_primary_defender + r_primary_defender_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4]),
+    effect_5 = r_primary_defender + r_primary_defender_modefender_foul_count * (simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4] + simo_modefender_foul_count1[5])
+  ) %>%
+  pivot_longer(
+    cols = starts_with(""effect_""),
+    names_to = ""foul_count"",
+    values_to = ""player_effect""
+  ) %>%
+  mutate(foul_count = as.numeric(str_extract(foul_count, ""\\d+""))) %>%
+  left_join(defender_positions, by = ""primary_defender"") %>%
+  group_by(defensive_team, primary_defender, foul_count) %>%
+  summarise(
+    mean_player_effect = mean(player_effect),
+    lower_player_95 = quantile(player_effect, 0.025),
+    upper_player_95 = quantile(player_effect, 0.975)
+  )
+"
+"2","Error: No variables found matching spec: r_primary_defender_modefender_foul_count[primary_defender,]
+"

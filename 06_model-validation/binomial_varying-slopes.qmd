@@ -223,52 +223,60 @@ player_effects_focused
 team_effects
 position_effects
 
-# Player effectiveness by defense distance category
-best_player_distance_effects <- foul_binomial_model_vs_1 %>%
-  spread_draws(r_primary_defender[primary_defender,], r_defense_distance_category[category,]) %>%
-  # Calculate the combined effect for each player and distance category
-  mutate(combined_effect = r_primary_defender + r_defense_distance_category) %>%
-  # Get summary statistics
-  group_by(primary_defender, category) %>%
-  summarise(
-    mean_effect = mean(combined_effect),
-    lower_95 = quantile(combined_effect, 0.025),
-    upper_95 = quantile(combined_effect, 0.975)
-  ) %>%
-  # Get top 10 players by overall effectiveness
-  group_by(primary_defender) %>%
-  mutate(overall_effect = mean(mean_effect)) %>%
-  ungroup() %>%
-  arrange((overall_effect)) %>%
-  slice_head(n = 50)
+defender_positions <- data_sample |> 
+  select(primary_defender, defender_position) |>
+  mutate(primary_defender = str_replace_all(primary_defender, " ", "\\.")) |> 
+  distinct()
 
+# Get player effects with positions
+player_effects_with_positions <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  group_by(primary_defender) %>%
+  summarise(
+    mean_effect = mean(r_primary_defender),
+    lower_95 = quantile(r_primary_defender, 0.025),
+    upper_95 = quantile(r_primary_defender, 0.975)
+  ) %>%
+  left_join(defender_positions, by = "primary_defender")
+
+# Get top and bottom 10 players by position
+top_bottom_by_position <- player_effects_with_positions %>%
+  group_by(defender_position) %>%
+  arrange(desc(mean_effect)) %>%
+  slice(c(1:10, (n()-9):n())) %>%
+  ungroup()
+
+# Get distance effects for these players
 player_distance_effects <- foul_binomial_model_vs_1 %>%
   spread_draws(r_primary_defender[primary_defender,], r_defense_distance_category[category,]) %>%
   # Calculate the combined effect for each player and distance category
   mutate(combined_effect = r_primary_defender + r_defense_distance_category) %>%
+  # Filter to only include our selected players
+  filter(primary_defender %in% top_bottom_by_position$primary_defender) %>%
   # Get summary statistics
-  group_by(primary_defender, category) %>%
+  group_by(primary_defender, category) |> 
   summarise(
     mean_effect = mean(combined_effect),
     lower_95 = quantile(combined_effect, 0.025),
     upper_95 = quantile(combined_effect, 0.975)
   ) %>%
-  # Get top 10 players by overall effectiveness
-  group_by(primary_defender) %>%
-  mutate(overall_effect = mean(mean_effect)) %>%
-  ungroup() %>%
-  arrange(desc(overall_effect)) %>%
-  slice_head(n = 50) |> 
-  full_join(best_player_distance_effects)
-
+  # Add position information
+  left_join(defender_positions, by = "primary_defender") %>%
+  # Add overall effect for ordering
+  left_join(
+    top_bottom_by_position %>% select(primary_defender, mean_effect),
+    by = "primary_defender",
+    suffix = c("_distance", "_overall")
+  )
 
 player_distance_effects |> 
-  ggplot(aes(x = mean_effect, y = reorder(primary_defender, overall_effect))) +
+  ggplot(aes(x = mean_effect_distance, y = reorder(primary_defender, mean_effect_overall))) +
   geom_point(aes(color = category), size = 3) +
   geom_errorbarh(aes(xmin = lower_95, xmax = upper_95, color = category), height = 0) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~defender_position, scales = "free_y", ncol = 1) +
   labs(
-    title = "Top and Bottom 10 Defensive Players by Distance Category",
+    title = "Top and Bottom 10 Defensive Players by Position",
     subtitle = "Showing effectiveness at different defensive distances",
     x = "Defensive Effect (log-odds)",
     y = "Player",
@@ -279,9 +287,58 @@ player_distance_effects |>
     axis.text.y = element_text(size = 8),
     plot.title = element_text(size = 14, face = "bold"),
     plot.subtitle = element_text(size = 10),
-    legend.position = "bottom"
+    legend.position = "bottom",
+    strip.text = element_text(size = 12, face = "bold")
   ) +
   scale_color_brewer(palette = "Set1")
+
+# Get team information for players
+defender_teams <- data_sample |> 
+  select(primary_defender, defensive_team) |>
+  mutate(primary_defender = str_replace_all(primary_defender, " ", "\\.")) |> 
+  distinct()
+
+# Create team-based player visualization
+team_player_effects <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  group_by(primary_defender) %>%
+  summarise(
+    mean_effect = mean(r_primary_defender),
+    lower_95 = quantile(r_primary_defender, 0.025),
+    upper_95 = quantile(r_primary_defender, 0.975)
+  ) %>%
+  left_join(defender_teams, by = "primary_defender") %>%
+  # Order teams by mean defensive effectiveness
+  group_by(defensive_team) %>%
+  mutate(team_mean = mean(mean_effect)) %>%
+  ungroup() %>%
+  arrange(team_mean, mean_effect) %>%
+  mutate(
+    defensive_team = factor(defensive_team, levels = unique(defensive_team)),
+    primary_defender = factor(primary_defender, levels = unique(primary_defender))
+  ) %>%
+  ggplot(aes(x = mean_effect, y = primary_defender)) +
+  geom_point(size = 2) +
+  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95), height = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~defensive_team, scales = "free_y", ncol = 3) +
+  labs(
+    title = "Player Defensive Effectiveness by Team",
+    subtitle = "Ordered by team and individual defensive effectiveness",
+    x = "Defensive Effect (log-odds)",
+    y = "Player",
+    caption = "Red line indicates average defensive effectiveness"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 6),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    strip.text = element_text(size = 10, face = "bold")
+  )
+
+# Display the team-based player visualization
+team_player_effects
 
 
 

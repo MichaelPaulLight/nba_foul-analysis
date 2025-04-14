@@ -1,0 +1,18 @@
+"0","foul_binomial_model_vs_mo_2 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo_2,
+  data = data_sample,
+  family = binomial(link = ""logit""),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = ""cmdstanr"",
+  file = (""foul_binomial_model_vs_mo_2_10000.rds"")
+)
+"
+"2","Error in brm(formula = foul_binomial_formula_varying_slopes_mo_2, data = data_sample,  : 
+  could not find function ""brm""
+"

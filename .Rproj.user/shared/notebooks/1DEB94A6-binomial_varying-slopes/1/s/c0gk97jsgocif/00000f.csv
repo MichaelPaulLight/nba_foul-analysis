@@ -1,0 +1,75 @@
+"0","# Get player effects with positions
+player_effects_with_positions <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  group_by(primary_defender) %>%
+  summarise(
+    mean_effect = mean(r_primary_defender),
+    lower_95 = quantile(r_primary_defender, 0.025),
+    upper_95 = quantile(r_primary_defender, 0.975)
+  ) %>%
+  left_join(defender_positions, by = ""primary_defender"")
+
+# Get top and bottom 10 players by position
+top_bottom_by_position <- player_effects_with_positions %>%
+  group_by(defender_position) %>%
+  arrange(desc(mean_effect)) %>%
+  slice(c(1:10, (n()-9):n())) %>%
+  ungroup()
+
+# Get distance effects for these players
+player_distance_effects <- foul_binomial_model_vs_1 %>%
+  spread_draws(r_primary_defender[primary_defender,], r_defense_distance_category[category,]) %>%
+  # Calculate the combined effect for each player and distance category
+  mutate(combined_effect = r_primary_defender + r_defense_distance_category) %>%
+  # Filter to only include our selected players
+  filter(primary_defender %in% top_bottom_by_position$primary_defender) %>%
+  # Get summary statistics
+  group_by(primary_defender, category) |> 
+  summarise(
+    mean_effect = mean(combined_effect),
+    lower_95 = quantile(combined_effect, 0.025),
+    upper_95 = quantile(combined_effect, 0.975)
+  ) %>%
+  # Add position information
+  left_join(defender_positions, by = ""primary_defender"") %>%
+  # Add overall effect for ordering
+  left_join(
+    top_bottom_by_position %>% select(primary_defender, mean_effect),
+    by = ""primary_defender"",
+    suffix = c(""_distance"", ""_overall"")
+  )
+"
+"1","[38;5;232m`summarise()` has grouped output by 'primary_defender'. You can override using the `.groups` argument.[39m
+"
+"2","Warning in left_join(., top_bottom_by_position %>% select(primary_defender,  :"
+"2","
+ "
+"2"," [38;5;232mDetected an unexpected many-to-many relationship between `x` and `y`.
+[36mℹ[38;5;232m Row 201 of `x` matches multiple rows in `y`.
+[36mℹ[38;5;232m Row 139 of `y` matches multiple rows in `x`.
+[36mℹ[38;5;232m If a many-to-many relationship is expected, set `relationship = ""many-to-many""` to silence this
+  warning.[39m
+"
+"0","player_distance_effects |> "
+"0","  ggplot(aes(x = mean_effect_distance, y = reorder(primary_defender, mean_effect_overall))) +"
+"0","  geom_point(aes(color = category), size = 3) +"
+"0","  geom_errorbarh(aes(xmin = lower_95, xmax = upper_95, color = category), height = 0) +"
+"0","  geom_vline(xintercept = 0, linetype = ""dashed"", color = ""red"") +"
+"0","  facet_wrap(~defender_position, scales = ""free_y"", ncol = 1) +"
+"0","  labs("
+"0","    title = ""Top and Bottom 10 Defensive Players by Position"","
+"0","    subtitle = ""Showing effectiveness at different defensive distances"","
+"0","    x = ""Defensive Effect (log-odds)"","
+"0","    y = ""Player"","
+"0","    color = ""Defense Distance"""
+"0","  ) +"
+"0","  theme_minimal() +"
+"0","  theme("
+"0","    axis.text.y = element_text(size = 8),"
+"0","    plot.title = element_text(size = 14, face = ""bold""),"
+"0","    plot.subtitle = element_text(size = 10),"
+"0","    legend.position = ""bottom"","
+"0","    strip.text = element_text(size = 12, face = ""bold"")"
+"0","  ) +"
+"0","  scale_color_brewer(palette = ""Set1"")"
+"0",""

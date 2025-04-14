@@ -1,0 +1,1 @@
+{"frames":[],"message":"Error in brm(formula = foul_binomial_formula_varying_slopes_mo_2, data = data_sample,  : \n  could not find function \"brm\"\n"}
