@@ -1,0 +1,164 @@
+```{r}
+library(tidyverse)
+library(ggdag)
+library(dagitty)
+
+# Create a DAG showing the relationship between fouls and defensive impact
+dag <- dagify(
+  shot_prob ~ defender_ability + offense_quality,
+  defender_ability ~ defensive_skill + defensive_pressure,
+  defensive_pressure ~ physical_attributes + fouls,  # More fouls reduce defensive pressure
+  fouls ~ defensive_pressure,  # More pressure leads to more fouls
+  outcome = "shot_prob",
+  exposure = "fouls",
+  labels = c(
+    "shot_prob" = "Shot Making\nProbability",
+    "defender_ability" = "Defender\nAbility",
+    "offense_quality" = "Offense\nQuality",
+    "defensive_skill" = "Defensive\nSkill",
+    "defensive_pressure" = "Defensive\nPressure",
+    "physical_attributes" = "Physical\nAttributes",
+    "fouls" = "Accumulated\nFouls"
+  )
+)
+
+# Plot the DAG with improved readability
+ggdag(dag, layout = "fr") +
+  theme_dag() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(size = 14, face = "bold"),
+    text = element_text(size = 12)
+  ) +
+  geom_dag_node(size = 20) +
+  geom_dag_edges(edge_width = 1) +
+  geom_dag_label_repel(aes(label = label)) +
+  labs(title = "DAG of Fouls and Defensive Impact on Shot Making")
+```
+
+```{r}
+dag_2 <- dagify(
+  shot_prob ~ defender_ability + offense_quality,
+  defender_ability ~ defensive_skill + defensive_pressure,
+  defender_ability ~ teammate_ability,
+  defensive_pressure ~ physical_attributes + fouls,  # More fouls reduce defensive pressure
+  fouls ~ defensive_pressure,  # More pressure leads to more fouls
+  outcome = "shot_prob",
+  exposure = "fouls",
+  labels = c(
+    "shot_prob" = "Shot Making\nProbability",
+    "defender_ability" = "Defender\nAbility",
+    "offense_quality" = "Offense\nQuality",
+    "defensive_skill" = "Defensive\nSkill",
+    "defensive_pressure" = "Defensive\nPressure",
+    "physical_attributes" = "Physical\nAttributes",
+    "teammate_ability" = "Teammate\nAbility",
+    "fouls" = "Accumulated\nFouls"
+  )
+)
+
+# Plot dag_2 with improved readability
+ggdag(dag_2, layout = "fr") +
+  theme_dag() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    text = element_text(size = 12)
+  ) +
+  geom_dag_node(
+    aes(color = ifelse(
+      name %in% c("fouls", "shot_prob", "physical_attributes", "position", "teammate_ability"),
+      "Observed",
+      "Unobserved"
+    )),
+    size = 25
+  ) +
+  scale_color_brewer(
+    palette = "Set1",
+    name = "Variable Type"
+  ) +
+  geom_dag_edges(edge_width = 1.2) +
+  geom_dag_text(
+    aes(label = label),
+    size = 4,
+    color = "white",
+    fontface = "bold"
+  ) +
+  labs(
+    title = "DAG of Fouls and Defensive Impact on Shot Making",
+    subtitle = "Including Teammate Ability"
+  )
+```
+
+```{r}
+dag_3 <- dagify(
+  shot_prob ~ defender_ability + offense_quality,
+  offense_quality ~ offensive_team + shot_action + shot_zone,
+  shot_zone ~ shot_area + shot_distance_ft,
+  
+  defender_ability ~ defensive_skill + defensive_pressure,
+  defender_ability ~ teammate_ability,
+  
+  defensive_pressure ~ physical_attributes + fouls,  # More fouls reduce defensive pressure
+  position ~ physical_attributes,
+  fouls ~ defensive_pressure,  # More pressure leads to more fouls
+  
+  outcome = "shot_prob",
+  exposure = "fouls",
+  labels = c(
+    "shot_prob" = "Shot Making\nProbability",
+    "offensive_team" = "Opposing\nOffense",
+    "shot_action" = "Shot\nType",
+    "shot_zone" = "General Shot\nLocation",
+    "shot_area" = "Shot\nLocation",
+    "shot_distance_ft" = "Basket\nDistance",
+    "defender_ability" = "Defender\nAbility",
+    "offense_quality" = "Offense\nQuality",
+    "defensive_skill" = "Defensive\nSkill",
+    "defensive_pressure" = "Defensive\nPressure",
+    "physical_attributes" = "Physical\nAttributes",
+    "position" = "Position",
+    "teammate_ability" = "Teammate\nAbility",
+    "fouls" = "Accumulated\nFouls"
+  )
+)
+
+# Plot dag_3 with improved readability and visual hierarchy
+ggdag(dag_3, layout = "fr") +
+  theme_dag() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    text = element_text(size = 12)
+  ) +
+  geom_dag_node(
+    aes(
+      color = ifelse(
+        name %in% c(
+          "fouls", "shot_prob", "physical_attributes", "position", 
+          "offensive_team", "shot_action", "shot_zone",
+          "shot_area", "shot_distance_ft"
+        ),
+        "Observed",
+        "Unobserved"
+      )
+    ),
+    size = 25
+  ) +
+  scale_color_brewer(
+    palette = "Set1",
+    name = "Variable Type"
+  ) +
+  geom_dag_edges(edge_width = 1.2) +
+  geom_dag_label_repel(
+    aes(label = label),
+    size = 2,
+    color = "black",
+    fontface = "bold"
+  ) +
+  labs(
+    title = "DAG of Fouls and Defensive Impact on Shot Making",
+    subtitle = "Including Shot Context and Teammate Ability"
+  )
+```
+

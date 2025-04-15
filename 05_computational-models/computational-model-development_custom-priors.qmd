@@ -525,74 +525,94 @@ Player 37 was on court for a stretch where the offense shot 0/4 from one distanc
 Player 47 was on court for a stretch where the offense shot very well from two distances and very poorly from the other 2.  
 
 ```{r}
+# Function to analyze multiple players
+analyze_players <- function(player_ids) {
+  # Distance analysis for all players
+  distance_analysis <- small_sim_unsummarized %>%
+    filter(defender_id %in% player_ids) %>%
+    group_by(defender_id, shot_distance_category) %>%
+    summarise(
+      shots_faced = n(),
+      shots_made = sum(shot_made),
+      shots_made_pct = mean(shot_made),
+      avg_foul_count = mean(defender_foul_count),
+      .groups = "drop"
+    ) %>%
+    arrange(defender_id, shot_distance_category)
+  
+  # Foul count analysis for all players
+  foul_analysis <- small_sim_unsummarized %>%
+    filter(defender_id %in% player_ids) %>%
+    group_by(defender_id, defender_foul_count) %>%
+    summarise(
+      shots_faced = n(),
+      shots_made = sum(shot_made),
+      shots_made_pct = mean(shot_made),
+      .groups = "drop"
+    ) %>%
+    arrange(defender_id, defender_foul_count)
+  
+  # Create distance comparison plot
+  distance_plot <- ggplot(distance_analysis, 
+                         aes(x = shot_distance_category, 
+                             y = shots_made_pct, 
+                             fill = factor(defender_id))) +
+    geom_col(position = position_dodge(width = 0.8), alpha = 0.7) +
+    geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", 
+                                shots_made, "/", shots_faced, ")")),
+              position = position_dodge(width = 0.8),
+              vjust = -0.5, size = 3) +
+    labs(
+      title = "Defensive Performance by Shot Distance",
+      subtitle = "Percentage of shots made when defended",
+      x = "Shot Distance Category",
+      y = "Shot Success Rate",
+      fill = "Player ID"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Create foul count comparison plot
+  foul_plot <- ggplot(foul_analysis, 
+                     aes(x = defender_foul_count, 
+                         y = shots_made_pct, 
+                         color = factor(defender_id))) +
+    geom_point(size = 3) +
+    geom_line() +
+    geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", 
+                                shots_made, "/", shots_faced, ")")),
+              vjust = -1, size = 3) +
+    labs(
+      title = "Defensive Performance by Foul Count",
+      subtitle = "How foul count affects shot success rate",
+      x = "Defender Foul Count",
+      y = "Shot Success Rate",
+      color = "Player ID"
+    ) +
+    facet_wrap(vars(defender_id), scales = "free_y") +
+    theme_minimal()
+  
+  # Return both plots and data frames
+  return(list(
+    distance_data = distance_analysis,
+    foul_data = foul_analysis,
+    distance_plot = distance_plot,
+    foul_plot = foul_plot
+  ))
+}
+```
 
-player_n <- 37
+```{r}
 
-player_analysis <- small_sim_unsummarized %>%
-  filter(defender_id == player_n) %>%
-  group_by(shot_distance_category) %>%
-  summarise(
-    shots_faced = n(),
-    shots_made = sum(shot_made),
-    shots_made_pct = mean(shot_made),
-    avg_foul_count = mean(defender_foul_count),
-    .groups = "drop"
-  ) %>%
-  arrange(shot_distance_category)
+player_analysis <- analyze_players(c(9))
 
-# Print the analysis
-player_analysis
+# Print the data frames
+print(player_analysis$distance_data)
+print(player_analysis$foul_data)
 
-# Visualize player 5's performance by distance
-player_plot <- ggplot(player_analysis, aes(x = shot_distance_category, y = shots_made_pct)) +
-  geom_col(fill = "steelblue", alpha = 0.7) +
-  geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", shots_made, "/", shots_faced, ")")),
-            vjust = -0.5, size = 3) +
-  labs(
-    title = str_c("Player", player_n, "'s Defensive Performance by Shot Distance"),
-    subtitle = "Percentage of shots made when defended",
-    x = "Shot Distance Category",
-    y = "Shot Success Rate"
-  ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Show the plot
-player_plot
-
-# Additional analysis: Foul count effect
-player_foul_analysis <- small_sim_unsummarized %>%
-  filter(defender_id == player_n) %>%
-  group_by(defender_foul_count) %>%
-  summarise(
-    shots_faced = n(),
-    shots_made = sum(shot_made),
-    shots_made_pct = mean(shot_made),
-    .groups = "drop"
-  ) %>%
-  arrange(defender_foul_count)
-
-# Print foul analysis
-player_foul_analysis
-
-# Visualize foul effect
-player_foul_plot <- ggplot(player_foul_analysis, aes(x = defender_foul_count, y = shots_made_pct)) +
-  geom_point(size = 3) +
-  geom_line() +
-  geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", shots_made, "/", shots_faced, ")")),
-            vjust = -1, size = 3) +
-  labs(
-    title = str_c("Player", player_n, "'s Defensive Performance by Foul Count"),
-    subtitle = "How foul count affects shot success rate",
-    x = "Defender Foul Count",
-    y = "Shot Success Rate"
-  ) +
-  theme_minimal()
-
-# Show the plot
-player_foul_plot
-
-
+# Show the plots
+player_analysis$distance_plot
+player_analysis$foul_plot
 ```
 
 ```{r}
