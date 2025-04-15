@@ -1,0 +1,30 @@
+---
+title: "Does this Model My Data Look Big?"
+subtitle: "The Role of Generative Modeling, Simulation Based Calibration Checks, and Prior Specification In an Efficient Bayesian Workflow: A Case Study"
+execute:
+  echo: false
+  warning: false 
+html:
+    toc: false
+    number-sections: true
+    embed-resources: true
+editor: visual
+author: "Michael Light"
+---
+
+# Project Motivation
+
+## What's a model? 
+
+Basketball is fundamentally a simple game: put a ball through a hoop. It's also a numbers game: put a ball through a hoop more times than your opponent. As a result, basketball analysis has historically focused on offensive aspects - who scored the most points, how they scored them, who assisted them, and so on. This offensive focus is natural given that the final score directly reflects which team scored more points.
+
+The introduction of player tracking technology in the early 2010s briefly revolutionized defensive analysis by providing detailed data on defender positioning and movement. However, since 2016, this valuable player tracking data has been made private, creating a significant challenge for researchers outside NBA organizations.
+
+This data limitation has created a critical gap in basketball analytics. Without access to detailed player tracking data, researchers are left with the same fundamental problem they faced before the tracking era: how can we effectively study and evaluate individual defensive ability when publicly available statistics are either: - Primarily focused on offense - Only loosely related to defense (e.g., blocks and steals)
+
+Solving this problem would democratize defensive evaluation by creating metrics that can be derived from publicly available, play-by-play data. This would allow analysts outside NBA organizations to contribute meaningful insights to the game and help properly communicate the value of defensive players who may not show up in traditional box scores.
+
+At a broader level, developing robust defensive metrics from public data could help bridge the growing divide between basketball analytics and fan understanding. Currently, there exists a significant gap between analysts who rely on advanced metrics and fans who primarily use traditional counting stats like points, rebounds, and assists. Developing novel, simple, and intuitive ways of understanding the impact of difficult-to-measure latent player characteristics like defensive skill represents a crucial challenge in modern basketball analysis.
+
+## What's in a model?
+
