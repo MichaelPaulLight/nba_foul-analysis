@@ -10,10 +10,6 @@
 *.xlsx
 *.xls
 *.pdf
-*.doc
-*.docx
-*.ppt
-*.pptx
 *.zip
 *.tar.gz
 *.tar
@@ -22,6 +18,7 @@
 *.rda
 *.feather
 *.parquet
+*.stan
 
 # OS generated files
 .DS_Store
