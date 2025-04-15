@@ -1,0 +1,114 @@
+```{r}
+library(hoopR)
+library(tidyverse)
+library(nanoparquet)
+library(janitor)
+library(zoo)
+library(here)
+library(duckplyr)
+```
+
+This notebook investigates foul count inflation in the 2024-25 NBA dataset as a possible data quality issue.
+
+Ultimately, it was determined that NBA play-by-play data sometimes contains inconsistencies in personal foul counts. Data cleaning steps to handle erroneuos counts are conducted in clean_pbp.qmd, and summarized in here("02_data", "02-2_data_rclean", "overall_foul_correction_summary.parquet")
+
+```{r}
+pbp_data <- read_parquet(here("02_data", "02-1_data_raw", "250409_pbp_gt.parquet"))
+
+pbp_data <- pbp_data %>%
+  mutate(fouling_player = case_when(
+    str_detect(description, regex("foul:", ignore_case = T)) ~ player1, 
+    .default = NA
+  )) %>%
+  mutate(fouled_player = case_when(
+    str_detect(description, regex("foul:", ignore_case = T)) ~ player3, 
+    .default = NA
+  )) %>%
+  mutate(personal_fouls_after_event = case_when(
+    !is.na(fouling_player) ~ str_extract(description, regex("\\([^()]*\\)(?![^()]*\\))"))
+  )) %>%
+  mutate(personal_fouls_after_event = str_extract(personal_fouls_after_event, regex("\\d+")))
+
+
+# Check for foul count inconsistencies
+foul_sequence_check <- pbp_data %>%
+  filter(!is.na(fouling_player)) %>%
+  group_by(game_id, fouling_player) %>%
+  arrange(secs_passed_game) %>%
+  mutate(
+    foul_count = as.numeric(personal_fouls_after_event),
+    prev_foul_count = lag(foul_count),
+    foul_count_diff = foul_count - coalesce(prev_foul_count, 0),
+    is_inconsistent = case_when(
+      is.na(foul_count) ~ FALSE,
+      foul_count < 0 ~ TRUE,
+      foul_count > 6 ~ TRUE,
+      !is.na(prev_foul_count) & foul_count_diff != 1 ~ TRUE,
+      .default = FALSE
+    )
+  ) %>%
+  filter(is_inconsistent) %>%
+  select(game_id, fouling_player, secs_passed_game, description, foul_count, prev_foul_count, foul_count_diff)
+
+# View the inconsistencies
+foul_sequence_check
+
+# Count the number of games with inconsistencies
+foul_sequence_check %>%
+  distinct(game_id) %>%
+  count()
+
+# Count the number of players with inconsistencies
+foul_sequence_check %>%
+  distinct(game_id, fouling_player) %>%
+  count()
+```
+
+```{r}
+nonagg_data <- read_parquet(here("02_data", "02-2_data_clean", "shot_level_defender_matchup_data_all.parquet"))
+
+investigation <- read_parquet(here("02_data", "02-2_data_clean", "overall_foul_correction_summary.parquet"))
+
+foul_jumps <- nonagg_data %>%
+  ungroup() |> 
+  # Group by game and defender
+  group_by(game_id, primary_defender) %>%  # Removed play_number from grouping
+  # Sort by play number within each group
+  arrange(game_id, primary_defender, play_number) %>%
+  # Calculate the difference in foul count from previous play
+  mutate(
+    prev_foul_count = lag(defender_foul_count, order_by = play_number)) |> 
+  mutate(prev_foul_count = replace_na(prev_foul_count, 0),
+    foul_count_diff = defender_foul_count - prev_foul_count
+  ) %>%
+  # Filter for cases where the foul count increases by more than 1
+  filter(!is.na(foul_count_diff) & foul_count_diff > 1)
+
+foul_jumps |> ungroup() |> select(game_id) |> distinct()
+
+  # Select relevant columns
+  select(
+    game_id, 
+    primary_defender, 
+    play_number, 
+    prev_play_number = lag(play_number),
+    defender_foul_count, 
+    prev_foul_count, 
+    foul_count_diff
+  )
+
+# Summary of findings
+jump_summary <- foul_jumps %>%
+  summarise(
+    n_jumps = n(),
+    n_games = n_distinct(game_id),
+    n_players = n_distinct(primary_defender),
+    max_jump = max(foul_count_diff, na.rm = TRUE)
+  )
+
+# Print results
+print("Summary of foul count jumps greater than 1:")
+print(jump_summary)
+
+```
+

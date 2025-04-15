@@ -1,0 +1,80 @@
+```{r}
+library(hoopR)
+library(tidyverse)
+library(nanoparquet)
+library(janitor)
+library(zoo)
+library(here)
+library(duckplyr)
+```
+
+This notbook takes our non-aggregated shot-level data and aggregates it for use with aggregated binomial models.
+
+```{r}
+nonagg_data <- read_parquet(here("02_data", "02-2_data_clean", "shot_level_defender_matchup_data_all.parquet"))
+```
+
+Because of the way roster data is reported by NBA teams, there are some players for whom we lack position information. For the purpose of this analysis, we'll drop these cases, which end up  
+
+```{r}
+aggregated_data <- nonagg_data |> 
+  group_by(game_id, period, slug_team_off, slug_team_def, primary_defender, shot_action, shot_zone, shot_area, shot_distance_ft, shot_type, defender_position, defender_foul_count) |> 
+  summarize(shots_defended_made = sum(shot_made),
+         shots_defended_total = n()) |> 
+  rename(defensive_team = slug_team_def,
+         offensive_team = slug_team_off) |> 
+  filter(!is.na(defender_position))
+
+# Function to create and save samples
+create_and_save_samples <- function(sample_size) {
+  set.seed(123)
+  
+  # Create strata
+  data_sample <- aggregated_data |> 
+    # First sample games
+    group_by(game_id) |> 
+    sample_frac(size = 1)  |>
+    ungroup() |> 
+    # Then sample within games
+    group_by(period, defensive_team) |> 
+    sample_frac(size = sample_size/nrow(aggregated_data), replace = FALSE) |>
+    mutate(defender_foul_count = as.numeric(defender_foul_count)) |> 
+    ungroup()
+  
+  # Create scaled version
+  data_sample_scaled <- data_sample |> 
+    mutate(defender_foul_count = scale(defender_foul_count)[,1])
+  
+  # Create ordered factor version
+  data_sample_factor <- data_sample |> 
+    mutate(defender_foul_count = factor(defender_foul_count, 
+                                   levels = 0:5,
+                                   ordered = TRUE))
+  
+  # Save the samples
+  write_parquet(data_sample, 
+                here("02_data", "02-3_data_modeling", 
+                     paste0("sample_", sample_size, ".parquet")))
+  write_parquet(data_sample_scaled, 
+                here("02_data", "02-3_data_modeling", 
+                     paste0("sample_", sample_size, "_scaled.parquet")))
+  write_parquet(data_sample_factor, 
+                here("02_data", "02-3_data_modeling", 
+                     paste0("sample_", sample_size, "_factor.parquet")))
+  
+  return(nrow(data_sample))
+}
+
+# Create samples of different sizes
+sample_sizes <- c(5000, 10000, 30000, 60000, 100000)
+
+# Create and save all samples
+sample_counts <- map(sample_sizes, create_and_save_samples)
+
+# Print sample sizes for verification
+print("Sample sizes created:")
+print(data.frame(
+  target_size = sample_sizes,
+  actual_size = unlist(sample_counts)
+))
+```

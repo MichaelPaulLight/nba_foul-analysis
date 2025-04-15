@@ -39,6 +39,105 @@ pbp_df <- pbp_df %>%
   )) %>%
   mutate(personal_fouls_after_event = str_extract(personal_fouls_after_event, regex("\\d+")))
 
+# Apply foul count correction to handle inconsistencies
+# The NBA play-by-play data sometimes contains inconsistencies in personal foul counts:
+# - Skipping numbers (e.g., going from 1 to 3)
+# - Decreasing counts (e.g., from 3 back to 2)
+# - Invalid counts (negative or >6)
+# - Missing values
+# This correction creates a proper sequential count by incrementing by 1 from the previous valid count
+# when inconsistencies are detected, ensuring proper foul progression throughout the game.
+corrected_fouls <- pbp_df %>%
+  filter(!is.na(fouling_player)) %>%
+  group_by(game_id, fouling_player) %>%
+  arrange(number_event) %>%
+  mutate(
+    foul_count = as.numeric(personal_fouls_after_event)) |> 
+  mutate(
+    corrected_foul_count = case_when(
+      # If first foul in sequence, use reported count but cap at 6
+      is.na(lag(foul_count, order_by = number_event)) ~ pmin(foul_count, 6),
+      # If foul count is missing, increment from previous but cap at 6
+      is.na(foul_count) ~ pmin(lag(foul_count, order_by = number_event) + 1, 6),
+      # If foul count is invalid (<0 or >6), increment from previous but cap at 6
+      foul_count < 0 | foul_count > 6 ~ pmin(lag(foul_count, order_by = number_event) + 1, 6),
+      # If foul count jumps by more than 1, increment from previous but cap at 6
+      foul_count - lag(foul_count, order_by = number_event) > 1 ~ pmin(lag(foul_count, order_by = number_event) + 1, 6),
+      # If foul count decreases, increment from previous but cap at 6
+      foul_count < lag(foul_count, order_by = number_event) ~ pmin(lag(foul_count, order_by = number_event) + 1, 6),
+      # Otherwise use reported count but cap at 6
+      TRUE ~ pmin(foul_count, 6)
+    )
+  ) %>%
+  # Additional safety check to ensure no foul counts exceed 6
+  mutate(corrected_foul_count = pmin(corrected_foul_count, 6)) %>%
+  ungroup() %>%
+  select(game_id, fouling_player, secs_passed_game, number_event, corrected_foul_count, foul_count)
+
+# Join the corrected foul counts back to the main pbp_df
+pbp_df <- pbp_df %>%
+  left_join(corrected_fouls, by = c("game_id", "fouling_player", "secs_passed_game", "number_event"))
+
+# Create a summary of the foul corrections applied
+foul_correction_summary <- corrected_fouls %>%
+  group_by(game_id, fouling_player) %>%
+  summarize(
+    total_fouls = n(),
+    corrected_fouls = sum(foul_count != corrected_foul_count, na.rm = TRUE),
+    correction_pct = corrected_fouls / total_fouls * 100,
+    fouls_over_six = sum(foul_count > 6, na.rm = TRUE),
+    max_foul_count = max(foul_count, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(corrected_fouls))
+
+# Overall summary
+overall_foul_correction <- corrected_fouls %>%
+  summarize(
+    total_foul_events = n(),
+    corrected_foul_events = sum(foul_count != corrected_foul_count, na.rm = TRUE),
+    correction_pct = corrected_foul_events / total_foul_events * 100,
+    games_with_corrections = n_distinct(game_id[foul_count != corrected_foul_count]),
+    players_with_corrections = n_distinct(fouling_player[foul_count != corrected_foul_count]),
+    total_fouls_over_six = sum(foul_count > 6, na.rm = TRUE),
+    players_with_over_six_fouls = n_distinct(fouling_player[foul_count > 6]),
+    games_with_over_six_fouls = n_distinct(game_id[foul_count > 6])
+  )
+
+# Save the foul correction summaries
+nanoparquet::write_parquet(
+  foul_correction_summary,
+  here(clean_data_dir, "foul_correction_by_player_summary.parquet")
+)
+
+nanoparquet::write_parquet(
+  overall_foul_correction,
+  here(clean_data_dir, "overall_foul_correction_summary.parquet")
+)
+
+# Print summary of foul corrections
+cat("\nFoul count correction summary:\n")
+cat("Total foul events:", overall_foul_correction$total_foul_events, "\n")
+cat("Corrected foul events:", overall_foul_correction$corrected_foul_events, 
+    "(", round(overall_foul_correction$correction_pct, 1), "%)\n")
+cat("Games with corrections:", overall_foul_correction$games_with_corrections, "\n")
+cat("Players with corrections:", overall_foul_correction$players_with_corrections, "\n")
+cat("Total fouls over six:", overall_foul_correction$total_fouls_over_six, "\n")
+cat("Players with over six fouls:", overall_foul_correction$players_with_over_six_fouls, "\n")
+cat("Games with over six fouls:", overall_foul_correction$games_with_over_six_fouls, "\n")
+
+# Top players with corrections
+top_players_corrections <- foul_correction_summary %>%
+  filter(corrected_fouls > 0) %>%
+  arrange(desc(corrected_fouls)) %>%
+  head(5)
+
+cat("\nTop 5 players with most foul corrections:\n")
+print(top_players_corrections)
+
+```
+
+```{r}
 # Create dataframe by defender
 pbp_df_by_defender <- pbp_df %>%
   group_by(game_id, slug_team) %>%
@@ -70,8 +169,10 @@ pbp_df_by_defender <- pbp_df %>%
   filter(off_slug_team != slug_team) %>%
   separate_longer_delim(cols = lineup, delim = ", ") %>%
   rename(player_name = lineup) %>%
+  # Use corrected foul count when available instead of raw personal_fouls_after_event
   mutate(
     personal_fouls_after_event = case_when(
+      fouling_player == player_name & !is.na(corrected_foul_count) ~ as.character(corrected_foul_count),
       fouling_player == player_name ~ personal_fouls_after_event, 
       .default = NA
     )
@@ -84,8 +185,8 @@ pbp_df_by_defender <- pbp_df %>%
   group_by(game_id, slug_team, player_name) %>%
   mutate(
     personal_fouls_during_event = case_when(
-      fouling_player == player_name ~ personal_fouls_after_event - 1,
-      TRUE ~ personal_fouls_after_event
+      fouling_player == player_name ~ pmin(personal_fouls_after_event - 1, 5),
+      TRUE ~ pmin(personal_fouls_after_event, 5)
     )
   ) %>%
   ungroup()
@@ -405,7 +506,7 @@ shot_df_test <- shot_df %>%
   ) %>%
   select(
     # Game info
-    game_date, game_id, slug_team.x, slug_opp, period, number_original,
+    game_date, game_id, number_event, slug_team.x, slug_opp, period, number_original,
     # Play details  
     clock, offender_name, offender_id, assister_name, assister_id,
     known_defender, locX, locY, defender_name, defender_id,
@@ -621,7 +722,7 @@ shot_level_defender_matchup_data <- non_aggregated_data |>
     game_date = game_date,
     game_id = game_id,
     period = period,
-    play_number = number_original,
+    play_number = number_event,
     
     # Player matchup
     shooter = offender_name,
@@ -661,6 +762,7 @@ nanoparquet::write_parquet(
 # This dataset includes all games, whether they have dashboard data or not
 non_aggregated_data_all <- shot_df_test |>
   # Only include games with complete data
+  filter(!(game_id %in% games_with_any_missing)) |> 
   mutate(
     shot_made_flag = as.numeric(shot_made_flag)
   ) |>
@@ -679,7 +781,7 @@ shot_level_defender_matchup_data_all <- non_aggregated_data_all |>
     game_date = game_date,
     game_id = game_id,
     period = period,
-    play_number = number_original,
+    play_number = number_event,
     
     # Player matchup
     shooter = offender_name,
@@ -700,10 +802,14 @@ shot_level_defender_matchup_data_all <- non_aggregated_data_all |>
     defender_foul_count = personal_fouls_during_event
   )
 
+# Add additional useful columns for analysis
+shot_level_defender_matchup_data_all <- shot_level_defender_matchup_data_all %>%
+  group_by(game_id, primary_defender) %>%
+  arrange(play_number) %>%
+  ungroup()
+
 nanoparquet::write_parquet(
   shot_level_defender_matchup_data_all,
   here(clean_data_dir, "shot_level_defender_matchup_data_all.parquet")
 )
 ```
-
-
