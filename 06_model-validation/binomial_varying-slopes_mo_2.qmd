@@ -16,6 +16,13 @@ data_sample <- data_sample |>
                                    levels = 0:5,
                                    ordered = TRUE))
 
+data_sample_10000 <- read_parquet(here("02_data", "02-3_data_modeling", "sample_10000_factor.parquet"))
+
+data_sample_10000 <- data_sample_10000 |> 
+  mutate(defender_foul_count = factor(defender_foul_count, 
+                                   levels = 0:5,
+                                   ordered = TRUE))
+
 data_sample_30000 <- read_parquet(here("02_data", "02-3_data_modeling", "sample_30000_factor.parquet"))
 
 data_sample_30000 <- data_sample_30000 |> 
@@ -142,6 +149,66 @@ foul_binomial_model_vs_mo_4_100000 <- brm(
   file = ("foul_binomial_model_vs_mo_4_100000.rds")
 )
 
+foul_binomial_model_vs_mo_5_10000 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo_5,
+  data = data_sample_10000,
+  family = binomial(link = "logit"),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_binomial_model_vs_mo_5_10000.rds")
+)
+
+foul_zero_binomial_model_vs_mo_5_10000 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo_5,
+  data = data_sample_10000,
+  family = zero_inflated_binomial(link = "logit", link_zi = "logit"),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_zeero_binomial_model_vs_mo_5_10000.rds")
+)
+
+foul_binomial_model_vs_mo_5_30000 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo_5,
+  data = data_sample_30000,
+  family = binomial(link = "logit"),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_binomial_model_vs_mo_5_30000.rds")
+)
+
+foul_binomial_model_vs_mo_5_100000 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo_5,
+  data = data_sample_100000,
+  family = binomial(link = "logit"),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_binomial_model_vs_mo_5_100000.rds")
+)
+
 foul_binomial_model_vs_mo_2 <- brm(
   formula = foul_binomial_formula_varying_slopes_mo_2,
   data = data_sample,
@@ -159,9 +226,18 @@ foul_binomial_model_vs_mo_2 <- brm(
 ```
 
 ```{r}
+loo_1 <- loo(foul_binomial_model_vs_mo_5_10000)
+
+loo_2 <- loo(foul_zero_binomial_model_vs_mo_5_10000)
+
+loo_compare(loo_1, loo_2)
+```
+
+
+```{r}
 summary(foul_binomial_model_vs_mo_3_30000)
 mcmc_plot(foul_binomial_model_vs_mo_3_30000)
-plot(foul_binomial_model_vs_mo_3_30000)
+plot(foul_binomial_model_vs_mo_5_30000)
 marginal_effects(foul_binomial_model_vs_mo_3_30000)
 
 # Load additional visualization packages
@@ -170,7 +246,7 @@ library(ggdist)
 library(patchwork)
 
 # 1. Monotonic effect visualization
-monotonic_effect <- foul_binomial_model_vs_mo_4_100000 %>%
+monotonic_effect <- foul_binomial_model_vs_mo_5_100000 %>%
   spread_draws(b_Intercept, simo_modefender_foul_count1[category]) %>%
   mutate(
     # Calculate the cumulative effect for each foul count
@@ -210,7 +286,7 @@ monotonic_effect_spread_2 <- foul_binomial_model_vs_mo_4_100000 %>%
   ggplot(aes(x = effect, y = foul_count, xmin = effect.lower, xmax = effect.upper)) +
   geom_pointinterval()
 
-monotonic_effect_spread_3 <- foul_binomial_model_vs_mo_4_100000 %>%
+monotonic_effect_spread_3 <- foul_binomial_model_vs_mo_5_100000 %>%
   spread_draws(b_Intercept, r_primary_defender[defender,], simo_modefender_foul_count1[foul_count]) %>%
   mutate(effect = b_Intercept + r_primary_defender + simo_modefender_foul_count1) |> 
   median_qi(effect) 
@@ -656,13 +732,13 @@ distance_player_effects_by_team
 ```{r}
 library(duckplyr)
 
-defender_teams <- data_sample_100000 |> 
+defender_teams <- data_sample_30000 |> 
   select(primary_defender, defensive_team) |>
   mutate(primary_defender = str_replace_all(primary_defender, " ", "\\.")) |> 
   distinct()
 
 # Create team-based player visualization
-team_player_effects_by_team_intercept <- foul_binomial_model_vs_mo_4_100000 %>%
+team_player_effects_by_team_intercept <- foul_binomial_model_vs_mo_5_30000 %>%
   spread_draws(r_primary_defender[primary_defender,], b_Intercept) %>%
   group_by(primary_defender) %>%
   mutate(combined_effect = r_primary_defender + b_Intercept) |> 
@@ -710,7 +786,7 @@ team_player_effects_by_team_intercept <- foul_binomial_model_vs_mo_4_100000 %>%
   ) +
   scale_color_brewer(palette = "Set1")
 
-team_player_effects_by_team <- foul_binomial_model_vs_mo_4_100000 %>%
+team_player_effects_by_team <- foul_binomial_model_vs_mo_5_30000 %>%
   spread_draws(r_primary_defender[primary_defender,]) %>%
   group_by(primary_defender) %>%
   mutate(combined_effect = r_primary_defender) |> 

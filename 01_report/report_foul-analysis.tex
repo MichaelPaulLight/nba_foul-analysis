@@ -1,0 +1,507 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames,x11names}{xcolor}
+%
+\documentclass[
+  letterpaper,
+  DIV=11,
+  numbers=noendperiod]{scrartcl}
+
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math}
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else  
+    % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\setcounter{secnumdepth}{5}
+% Make \paragraph and \subparagraph free-standing
+\ifx\paragraph\undefined\else
+  \let\oldparagraph\paragraph
+  \renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+  \let\oldsubparagraph\subparagraph
+  \renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{longtable}
+\usepackage{colortbl}
+\usepackage{array}
+\usepackage{anyfontsize}
+\usepackage{multirow}
+\KOMAoption{captions}{tableheading}
+\makeatletter
+\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\AtBeginDocument{%
+\ifdefined\contentsname
+  \renewcommand*\contentsname{Table of contents}
+\else
+  \newcommand\contentsname{Table of contents}
+\fi
+\ifdefined\listfigurename
+  \renewcommand*\listfigurename{List of Figures}
+\else
+  \newcommand\listfigurename{List of Figures}
+\fi
+\ifdefined\listtablename
+  \renewcommand*\listtablename{List of Tables}
+\else
+  \newcommand\listtablename{List of Tables}
+\fi
+\ifdefined\figurename
+  \renewcommand*\figurename{Figure}
+\else
+  \newcommand\figurename{Figure}
+\fi
+\ifdefined\tablename
+  \renewcommand*\tablename{Table}
+\else
+  \newcommand\tablename{Table}
+\fi
+}
+\@ifpackageloaded{float}{}{\usepackage{float}}
+\floatstyle{ruled}
+\@ifundefined{c@chapter}{\newfloat{codelisting}{h}{lop}}{\newfloat{codelisting}{h}{lop}[chapter]}
+\floatname{codelisting}{Listing}
+\newcommand*\listoflistings{\listof{codelisting}{List of Listings}}
+\makeatother
+\makeatletter
+\makeatother
+\makeatletter
+\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\@ifpackageloaded{subcaption}{}{\usepackage{subcaption}}
+\makeatother
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same} % disable monospaced font for URLs
+\hypersetup{
+  pdftitle={A Multilevel Bayesian Approach for Inferring the Effect of Fouls on Offensive Patterns in NBA Basketball Games},
+  pdfauthor={Michael Light},
+  colorlinks=true,
+  linkcolor={blue},
+  filecolor={Maroon},
+  citecolor={Blue},
+  urlcolor={Blue},
+  pdfcreator={LaTeX via pandoc}}
+
+\title{A Multilevel Bayesian Approach for Inferring the Effect of Fouls
+on Offensive Patterns in NBA Basketball Games}
+\author{Michael Light}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Timeline}\label{timeline}
+
+Editable
+\href{https://docs.google.com/spreadsheets/d/1-yxScU8IQDm0yY-b2s7P6D_-Z3uH5F8GrPLc_FQrKNs/edit?gid=0\#gid=0}{here}.
+
+\begin{table}
+\fontsize{12.0pt}{14.4pt}\selectfont
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}rl}
+\toprule
+date & task \\ 
+\midrule\addlinespace[2.5pt]
+Fri, Apr 18, 2025 & Final Generative Model Validated w/SBC \\ 
+Mon, Apr 21, 2025 & Final Computational Model Fit to Real Data \\ 
+Wed, Apr 23, 2025 & Initial Draft Ready for Review \\ 
+Thu, May 1, 2025 & Final Draft Submitted \\ 
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\section{Project Motivation}\label{project-motivation}
+
+\subsection{Background on the Role of Physicality in NBA
+Games}\label{background-on-the-role-of-physicality-in-nba-games}
+
+Basketball is fundamentally a simple game: put a ball through a hoop.
+It's also a numbers game: put a ball through a hoop more times than your
+opponent. As a result, basketball analysis has historically focused on
+offensive aspects - who scored the most points, how they scored them,
+who assisted them, and so on. This offensive focus is natural given that
+the final score directly reflects which team scored more points.
+
+The introduction of player tracking technology in the early 2010s
+briefly revolutionized defensive analysis by providing detailed data on
+defender positioning and movement. However, since 2016, this valuable
+player tracking data has been made private, creating a significant
+challenge for researchers outside NBA organizations.
+
+This data limitation has created a critical gap in basketball analytics.
+Without access to detailed player tracking data, researchers are left
+with the same fundamental problem they faced before the tracking era:
+how can we effectively study and evaluate individual defensive ability
+when publicly available, ``counting'' statistics are either:
+
+\begin{itemize}
+\item
+  Primarily focused on offense
+\item
+  Only loosely related to defense (e.g., blocks and steals)
+\end{itemize}
+
+Solving this problem helps democratize defensive evaluation by creating
+metrics that can be derived from publicly available, play-by-play data.
+This would allow analysts outside NBA organizations to contribute
+meaningful insights to the game and help properly communicate the value
+of defensive players who may not show up in traditional box scores.
+Further, reliance on player tacking rather than play-by-play data
+relegates sample selection to a third-party data provider like
+\href{https://sportradar.com/synergy-player-tracking/}{Synergy}, whose
+publication aims may introduce bias by selecting observations which may
+not be representative of the game as a whole. As such, determining the
+viability of using counting stats to infer complex characteristics of
+games has the potential to reduce sytematic uncertainty and risk of
+future policy changes by third parties.
+
+At a broader level, developing robust defensive metrics from public data
+could help bridge the growing divide between basketball analytics and
+fan understanding. Currently, there exists a significant gap between
+analysts who rely on advanced metrics and fans who primarily use
+traditional counting stats like points, rebounds, and assists.
+Developing novel, simple, and intuitive ways of understanding the impact
+of difficult-to-measure latent player characteristics like defensive
+skill represents a crucial challenge in modern basketball analysis.
+
+\subsection{Purpose}\label{purpose}
+
+The purpose of this research is to estimate the causal influence of
+individual defender foul counts on the shotmaking probability of
+opposing offenses under the hypothesis that players' defensive skill is
+a latent trait that can be estimated using NBA play-by-play data.
+
+This work draws widely from fields including sports analytics, causal
+inference, Bayesian statistics, and item-response theory.
+
+\subsection{Confounding Expected}\label{confounding-expected}
+
+Among the challenges quantifying any aspect of player skill---offensive,
+defensive, or otherwise---is separating individual from team
+contribution. For all the simplicity noted in the introduction,
+basketball isn't a game you play on paper (Simmons, 2009). We expect any
+analysis or model to be imprecise to some degree, and in this research
+attempt to account for unobserved confounds associated with shotmaking
+probability. These include offensive characteristics including offensive
+team, shot location, and shot type.
+
+We narrow our study of defensive skill to offensive posessions that
+result in a shot. This means that we define defensive skill primarily as
+a component of any defending player's ability to affect the probability
+that any opposing offensive player successfully makes an attempted shot.
+We do not consider cases where an offensive possession results in a
+turnover, such as those caused by steals or shot clock violations, which
+although may be indicitative of good or bad defense being played are
+ignored for the purpose of this analysis.
+
+As such, any estimate of defensive skill should be interpreted as an
+estimate of defensive skill in the context of shotmaking, and should be
+assumed independent of higher-level, latent traits like general
+defensive skill, general skill, offensive skill, etc.
+
+\subsection{Missing Data}\label{missing-data}
+
+The dataset used for this paper include complete play-by-play records
+for every game played during the 2024-2025 NBA season. As our analysis
+relies on player-level position data reported on official NBA team
+rosters as of 2025-04-14, players who were included in games earlier in
+the season but were no longer part of any NBA rosters lacked position
+data and were dropped from the sample. This included TK players,
+accounting for TK percent of the raw data.
+
+\subsection{Measurement}\label{measurement}
+
+The target of inference (defensive skill) cannot be directly measured,
+and the primary measurement (foul count) is measured with some amount of
+error resulting from erroneous transcription in raw play\_by\_play data.
+Steps taken to account for transcription error can be found in the
+supplemental code.
+
+Since foul counts differ between individual defender and defenders tend
+to play for fewer minutes as their foul count increases (Chu and Swartz,
+2020), the sample size of shots taken in the presence of a defender with
+a high foul count versus a low foul count is unbalanced. Multilevel
+models and adaptive regularizing priors (McElreath, 2020, pp.~408) are
+used to mitigate over fitting such that comparisons can be made across
+foul counts.
+
+\section{Literature Review}\label{literature-review}
+
+Bayesian models have been used in a number of previous studies to model
+the both offensive and defensive performance. Williams et al.~(2024)
+used a Bayesian hierarchical modeling framework to model offensive
+performance of teams and players based on their shooting propensities
+and abilities. They used discretized shot loactions for the top 100
+shot-takers from the 2008/2009--2020/2021 seasons to create an expected
+points above average (EPAA) metric. Our project differs in our use of
+hierarchical modeling to infer defensive impact, rahter than
+contributing to the existing research on offense.
+
+Franks et al.~(2015) was one of the pioneering papers in using Bayesian
+hierarchical models to study player tracking data by modeling the
+relationship between a defensive assignment and the spacial-temporal
+shotmaking tendencies of various offensive players, which is to say how
+well they shoot the ball given the location, time, and defender of a
+shot attempt. Our project differs in that we use a Bayesian hierarchical
+model to infer defensive impact without using raw player tracking data,
+rather than modeling the relationship between a known defensive
+assignment and shotmaking tendencies.
+
+Finally, Chu and Swartz (2020) use Bayesian methods to model the
+time-to-event of a foul as a gamma distributed function of a player,
+their accumulated number of fouls, and their position. Their goal was to
+develop a decision-making framework for coaches to use in determining
+when to sit players at risk of fouling out (usually when a player
+reaches 6 fouls) of a game. Although similar in spirit, our project
+doesn't model the time-to-event of a foul nor attempt to help coaches
+make decisions about sitting their players, but instead focuses on the
+effect of fouls while players are on the court.
+
+\section{Modeling Strategy}\label{modeling-strategy}
+
+This section details the steps taken to develop a novel model for
+inferring player defensive skill based on the Bayesian workflow proposed
+by Gelman and Hill (BDA3, 2006) and others. Naming conventions and
+statistical notation are in line with those used by McElreath.
+
+It includes: - a narrative model of the system of inquiry (Betancourt,
+TK), - a heuristic causal model motivated by the narrative, - an
+agent-based generative model used to simulate sythetic observations of
+shots within a basketball game, - a mathematical model, and - a
+computational model compatible with the Hamiltonian Monte-Carlo sample
+implemented in the Stan probabilistic programming language (Carpenter,
+2017).
+
+\subsection{Narrative Model}\label{narrative-model}
+
+We assume that basketball is essentially a game of occupying physical
+space. We assume that at any given time T, each location L on a court of
+dimension TKxTK has some value V to an offensive player OP, who makes
+decisions so as to maximize V. As in chess, defenders are advantaged by
+anticipating the spatial preferences (V \textbar{} L) of their opponents
+and at time T-1 occupying the location L where V is maximized.
+
+Any given location L can be occupied by no more than one player
+(offensive or defensive) at any given time T.
+
+Essentially, at any given time, offensive players prefer to occupy
+whatever location on the court maximizes their probability of their team
+scoring the basket. Defensive players are able to reduce the value of
+any location in one of two ways:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  By using his defensive skill to preemptively occupy the highest value
+  max(V \textbar{} T) location, thereby reducing the total value of any
+  other given location
+\item
+  By using his physical skill to occupy an adjacent location to max(V
+  \textbar{} T) and initiating contact at time T, thereby lowering its
+  value
+\end{enumerate}
+
+This assumes that defensive players' ability to affect shotmaking
+probability for any given L is some additive function of his
+\textbf{physical skill} and his \textbf{defensive skill}.
+
+We can then assume that defenders with more defensive skill require less
+physical skill to affect shotmaking probability for any max(V \textbar{}
+T).
+
+We also assume that defenders who use too much physical skill to affect
+a given shot are assessed a foul, which accumulate at some rate over the
+course of a given game.
+
+We also assume that as a given player's n\_fouls increases, his ability
+to express physical skill drops, and so a greater proportion of his
+ability to affect shotmaking is comprised of his defensive skill.
+
+For an illustration of the narrative model in action we can think about
+the offensive charge, a case in which a defender anticipates the
+movements of a driving offensive player to such an accurate degree that
+he's able to beat that offender to the location of his shot, resulting
+in contact initiated entirely by the offender that is ultimately called
+a turnover in favor of the defense. Taking a charge as it's called
+(perhaps we should think of it as causing a charge) requires no physical
+pressure on the part of the defender, who instead uses his knowledge of
+the game and IQ (plausible latent traits of a good defender) to gain the
+advantage on a possession. Or, we can think of the cases where a
+defender pulls the chair in the post, a rec league classic. Here, a
+defender anticipates contact from an offender whose face is away from
+the basket, throwing them off balance by moving out of the at the last
+moment.
+
+\subsection{Causal model}\label{causal-model}
+
+The complete causal model assumed in this paper can be visualized with
+the following Directed Acyclic Graph (DAG):
+
+\includegraphics{report_foul-analysis_files/figure-pdf/unnamed-chunk-2-1.pdf}
+
+This causal diagram includes measurable variables and unmeasurable,
+latent player traits which we may infer using an assumed narrative
+
+\section{Generative Model}\label{generative-model}
+
+The complete generative model used for prior elicitation and model
+validation via simulation based calibration can be found in the
+associated materials.
+
+\begin{verbatim}
+# A tibble: 5 x 7
+  defensive_team_id defender_id position defender_foul_count
+              <int>       <int> <chr>                  <dbl>
+1                 1           1 PG                         1
+2                 1           1 PG                         1
+3                 1           1 PG                         2
+4                 1           1 PG                         3
+5                 1           1 PG                         3
+# i 3 more variables: shot_distance_category <chr>, shots_taken <int>,
+#   shots_made <int>
+\end{verbatim}
+
+\section{Statistical Models}\label{statistical-models}
+
+The statistical model can be written as the following:
+
+\section{Prior Selection and Predictive
+Checks}\label{prior-selection-and-predictive-checks}
+
+\subsection{Two Prior Models for each Model of Foul Effect on
+Shot-taking}\label{two-prior-models-for-each-model-of-foul-effect-on-shot-taking}
+
+\subsubsection{Less Constrained}\label{less-constrained}
+
+\subsubsection{More Constrained}\label{more-constrained}
+
+\section{Model Validation}\label{model-validation}
+
+\subsection{Simulation Based
+Calibration}\label{simulation-based-calibration}
+
+\section{Observed Sample Selection}\label{observed-sample-selection}
+
+\subsection{Observed Sample of Shots
+(Play-by-Play)}\label{observed-sample-of-shots-play-by-play}
+
+\section{Model Fitting and
+Diagnostics}\label{model-fitting-and-diagnostics}
+
+\subsection{Fitting Models to Observed
+Samples}\label{fitting-models-to-observed-samples}
+
+\subsection{HMC Diagnostics}\label{hmc-diagnostics}
+
+\section{Posterior Analysis}\label{posterior-analysis}
+
+\subsection{Posterior Retrodictive
+Checks}\label{posterior-retrodictive-checks}
+
+\subsection{Posterior Residual Checks}\label{posterior-residual-checks}
+
+\section{Counter-factual Analysis}\label{counter-factual-analysis}
+
+\section{Conclusion}\label{conclusion}
+
+\section{Appendices}\label{appendices}
+
+\subsection{Appendix A.}\label{appendix-a.}
+
+\subsubsection{References}\label{references}
+
+Add:
+
+\begin{itemize}
+\tightlist
+\item
+  BDA 3 (Gelman and Hill)
+\item
+  Statistical rethinking (McElreath)
+\item
+  Stan (Carpenter, 2017)
+\item
+  Betancourt narrative model
+\end{itemize}
+
+Chu, D., \& Swartz, T. (2020). Foul accumulation in the NBA. Journal of
+Quantitative Analysis in Sports, 16(4), 301-309.
+https://doi.org/10.1515/jqas-2019-0119
+
+Franks, A., Miller, A., Bornn, L., Goldsberry, K., Characterizing the
+spatial structure of defensive skill in professional basketball. (2015)
+Ann. Appl. Stat. 9 (1) 94 - 121. https://doi.org/10.1214/14-AOAS799
+
+Simmons, B. (2009). The book of basketball: the NBA according to the
+sports guy. Ballantine/ESPN Books.
+
+Williams, B., Schliep, E. M., Fosdick, B., \& Elmore, R. (2024).
+Expected points above average: A novel NBA player metric based on
+Bayesian hierarchical modeling. arXiv preprint arXiv:2405.10453.
+https://arxiv.org/abs/2405.10453
+
+
+
+\end{document}

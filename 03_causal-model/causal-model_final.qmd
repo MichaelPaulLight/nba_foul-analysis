@@ -1,0 +1,61 @@
+```{r}
+library(tidyverse)
+library(ggdag)
+library(dagitty)
+
+dag_3 <- dagify(
+  shot_prob ~ defender_ability + offense_quality,
+  offense_quality ~ offensive_team + shot_action + shot_zone,
+  shot_zone ~ shot_area + shot_distance_ft,
+  
+  defender_ability ~ defensive_skill + defensive_pressure,
+  defender_ability ~ teammate_ability,
+  
+  defensive_pressure ~ physical_attributes + fouls,  # More fouls reduce defensive pressure
+  position ~ physical_attributes,
+  fouls ~ defensive_pressure,  # More pressure leads to more fouls
+  
+  outcome = "shot_prob",
+  exposure = "fouls",
+  labels = c(
+    "shot_prob" = "Shot Making\nProbability",
+    "offensive_team" = "Opposing\nOffense",
+    "shot_action" = "Shot\nType",
+    "shot_zone" = "General Shot\nLocation",
+    "shot_area" = "Shot\nLocation",
+    "shot_distance_ft" = "Basket\nDistance",
+    "defender_ability" = "Defender\nAbility",
+    "offense_quality" = "Offense\nQuality",
+    "defensive_skill" = "Defensive\nSkill",
+    "defensive_pressure" = "Defensive\nPressure",
+    "physical_attributes" = "Physical\nAttributes",
+    "position" = "Position",
+    "teammate_ability" = "Teammate\nAbility",
+    "fouls" = "Accumulated\nFouls"
+  )
+)
+
+# Plot dag_3 with improved readability and visual hierarchy
+ggdag(dag_3) +
+  theme_dag() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    text = element_text(size = 12)
+  ) +
+  scale_adjusted() +
+  geom_dag_point(
+      size = 20
+  ) +
+  scale_color_brewer(
+    palette = "Set1",
+    name = "Variable Type"
+  ) +
+  geom_dag_edges(edge_width = 1) +
+  geom_dag_label(
+    aes(label = label),
+    size = 2,
+    color = "black",
+    fontface = "bold")
+```
+

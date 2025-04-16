@@ -2,8 +2,8 @@
     "sortOrder": [
         {
             "columnIndex": 2,
-            "ascending": false
+            "ascending": true
         }
     ],
-    "path": "~/Documents/GitHub/nba_foul-analysis/01_report"
+    "path": "~/Documents/GitHub/nba_foul-analysis"
 }
