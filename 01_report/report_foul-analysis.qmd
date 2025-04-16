@@ -4,7 +4,7 @@ execute:
   echo: false
   warning: false 
 format:
-  pdf:
+  html:
     toc: false
     number-sections: true
     embed-resources: true
@@ -49,7 +49,7 @@ At a broader level, developing robust defensive metrics from public data could h
 
 ## Purpose
 
-The purpose of this research is to estimate the causal influence of individual defender foul counts on the shotmaking probability of opposing offenses under the hypothesis that players' defensive skill is a latent trait that can be estimated using NBA play-by-play data. 
+The purpose of this research is to estimate the causal influence of individual defender foul counts on the shotmaking probability of opposing offenses under the hypothesis that players' defensive skill is a latent trait that can be estimated using NBA play-by-play data.
 
 This work draws widely from fields including sports analytics, causal inference, Bayesian statistics, and item-response theory.
 
@@ -57,9 +57,9 @@ This work draws widely from fields including sports analytics, causal inference,
 
 Among the challenges quantifying any aspect of player skill—offensive, defensive, or otherwise—is separating individual from team contribution. For all the simplicity noted in the introduction, basketball isn't a game you play on paper (Simmons, 2009). We expect any analysis or model to be imprecise to some degree, and in this research attempt to account for unobserved confounds associated with shotmaking probability. These include offensive characteristics including offensive team, shot location, and shot type.
 
-We narrow our study of defensive skill to offensive posessions that result in a shot. This means that we define defensive skill primarily as a component of any defending player's ability to affect the probability that any opposing offensive player successfully makes an attempted shot. We do not consider cases where an offensive possession results in a turnover, such as those caused by steals or shot clock violations, which although may be indicitative of good or bad defense being played are ignored for the purpose of this analysis. 
+We narrow our study of defensive skill to offensive posessions that result in a shot. This means that we define defensive skill primarily as a component of any defending player's ability to affect the probability that any opposing offensive player successfully makes an attempted shot. We do not consider cases where an offensive possession results in a turnover, such as those caused by steals or shot clock violations, which although may be indicitative of good or bad defense being played are ignored for the purpose of this analysis.
 
-As such, any estimate of defensive skill should be interpreted as an estimate of defensive skill in the context of shotmaking, and should be assumed independent of higher-level, latent traits like general defensive skill, general skill, offensive skill, etc. 
+As such, any estimate of defensive skill should be interpreted as an estimate of defensive skill in the context of shotmaking, and should be assumed independent of higher-level, latent traits like general defensive skill, general skill, offensive skill, etc.
 
 ## Missing Data
 
@@ -83,33 +83,35 @@ Finally, Chu and Swartz (2020) use Bayesian methods to model the time-to-event o
 
 This section details the steps taken to develop a novel model for inferring player defensive skill based on the Bayesian workflow proposed by Gelman and Hill (BDA3, 2006) and others. Naming conventions and statistical notation are in line with those used by McElreath.
 
-It includes:
--   a narrative model of the system of inquiry (Betancourt, TK),
--   a heuristic causal model motivated by the narrative,
--   an agent-based generative model used to simulate sythetic observations of shots within a basketball game,
--   a mathematical model, and
--   a computational model compatible with the Hamiltonian Monte-Carlo sample implemented in the Stan probabilistic programming language (Carpenter, 2017).
+It includes: - a narrative model of the system of inquiry (Betancourt, TK), - a heuristic causal model motivated by the narrative, - an agent-based generative model used to simulate sythetic observations of shots within a basketball game, - a mathematical model, and - a computational model compatible with the Hamiltonian Monte-Carlo sample implemented in the Stan probabilistic programming language (Carpenter, 2017).
 
 ## Narrative Model
 
-We assume that basketball is essentially a game of occupying physical space. We assume that at any given time T, each location L on a court of dimension TKxTK has some value V to an offensive player OP, who makes decisions so as to maximize V. As in chess, defenders are advantaged by anticipating the spatial preferences (V | L) of their opponents and at time T-1 occupying the location L where V is maximized.
+\[This section is a work in progress. I plan on taking out the pseudo math, which is currently in place to help me think through the causal model\]
+
+We assume that basketball is essentially a game of occupying physical space. We assume that at any given time T, each location L on a court of dimension TKxTK has some value V to an offensive player OP, who makes decisions so as to maximize V. As in chess, defenders are advantaged by anticipating the spatial preferences (V \| L) of their opponents and at time T-1 occupying the location L where V is maximized.
 
 Any given location L can be occupied by no more than one player (offensive or defensive) at any given time T.
 
-Essentially, at any given time, offensive players prefer to occupy whatever location on the court maximizes their probability of their team scoring the basket. Defensive players are able to reduce the value of any location in one of two ways: 
+Essentially, at any given time, offensive players prefer to occupy whatever location on the court maximizes their probability of their team scoring the basket. Defensive players are able to reduce the value of any location in one of two ways:
 
-1. By using his defensive skill to preemptively occupy the highest value max(V | T) location, thereby reducing the total value of any other given location
-2. By using his physical skill to occupy an adjacent location to max(V | T) and initiating contact at time T, thereby lowering its value 
+1.  By using his defensive skill to preemptively occupy the highest value max(V \| T) location, thereby reducing the total offensive value of any available location.
 
-This assumes that defensive players' ability to affect shotmaking probability for any given L is some additive function of his **physical skill** and his **defensive skill**. 
+2.  Having been unable to preemptively occupy the highest value max(V \| T), by using defensive pressure to initiate contact at max(V \| T), thereby lowering its value directly. This could look functionally something like V \| T \~ f(max(V \| T) + (dp \| T))
 
-We can then assume that defenders with more defensive skill require less physical skill to affect shotmaking probability for any max(V | T).
+This assumes that defensive players' ability to affect shotmaking probability for any given L is some additive function of his **defensive pressure** and his **defensive skill**.
 
-We also assume that defenders who use too much physical skill to affect a given shot are assessed a foul, which accumulate at some rate over the course of a given game. 
+We can then assume that defenders with more defensive skill require less defensive pressure to affect shotmaking probability for any max(V \| T).
 
-We also assume that as a given player's n_fouls increases, his ability to express physical skill drops, and so a greater proportion of his ability to affect shotmaking is comprised of his defensive skill. 
+We also assume that defenders who use too much defensive pressure to affect the value of max(V \| T) are assessed a foul, which accumulate at some rate over the course of a given game. E.g. foul_assessed \~ f(max(V \| T) - V \| T \>)
 
-For an illustration of the narrative model in action we can think about the offensive charge, a case in which a defender anticipates the movements of a driving offensive player to such an accurate degree that he’s able to beat that offender to the location of his shot, resulting in contact initiated entirely by the offender that is ultimately called a turnover in favor of the defense. Taking a charge as it’s called (perhaps we should think of it as causing a charge) requires no physical pressure on the part of the defender, who instead uses his knowledge of the game and IQ (plausible latent traits of a good defender) to gain the advantage on a possession. Or, we can think of the cases where a defender pulls the chair in the post, a rec league classic. Here, a defender anticipates contact from an offender whose face is away from the basket, throwing them off balance by moving out of the at the last moment.
+We also assume that as a given player's fouls increase, his ability to express physical skill drops, and so a greater proportion of his ability to affect shotmaking is comprised of his defensive skill.
+
+The difference between a given defensive player's affect on the probability that a shot is made when the shot is taken while that defensive player has some number of fouls versus some other number of fouls can be interpreted as the total amount of his shot-affecting ability is owed to his defensive skill versus his defensive pressure.
+
+For an illustration of the narrative model in action we can think about the offensive charge, a case in which a defender anticipates the movements of a driving offensive player to such an accurate degree that he's able to beat that offender to the location of his shot, resulting in contact initiated entirely by the offender that is ultimately called a turnover in favor of the defense. Taking a charge as it's called (perhaps we should think of it as causing a charge) requires no physical pressure on the part of the defender, who instead uses his knowledge of the game and IQ (plausible latent traits of a good defender) to gain the advantage on a possession.
+
+Or, we can consider the defensive move known as "pulling the chair" in the post. In this scenario, a defender anticipates that an offensive player (facing away from the basket) is about to initiate contact to establish position. At the last moment, the defender steps away, causing the offensive player to lose balance. Like drawing a charge, this move relies primarily on defensive skill (anticipation and timing) rather than physical pressure. If pulling the chair effectively reduces shotmaking probability by disrupting the offensive player's balance, we would expect to see minimal correlation between foul accumulation and defensive effectiveness on post-up shots for players who excel at this technique.
 
 ## Causal model
 
@@ -121,14 +123,14 @@ This causal diagram includes measurable variables and unmeasurable, latent playe
 
 # Generative Model
 
-The complete generative model used for prior elicitation and model validation via simulation based calibration can be found in the associated materials.
+The [complete generative model](https://github.com/MichaelPaulLight/nba_foul-analysis/blob/main/00_R/simulate_shots.R) used for prior elicitation and model validation via simulation based calibration can be found in the associated materials.
 
 ```{r}
 source(here::here("00_R", "simulate_shots.R"))
 
 small_sim <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10) |> head(5)
 
-print(small_sim)
+small_sim |> gt()
 ```
 
 # Statistical Models

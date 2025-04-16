@@ -1,0 +1,4 @@
+- source: report_foul-analysis.qmd
+  quarto-pub:
+    - id: cf1f877a-74b0-4005-a9b4-707f8086db97
+      url: 'https://michael-light.quarto.pub/a-multilevel-bayesian-approach-for-inferring-the-effect-of-fouls-on-offensive-patterns-in-nba-basketball-games-6319'
