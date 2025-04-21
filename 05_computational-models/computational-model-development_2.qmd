@@ -1,0 +1,434 @@
+```{r}
+library(tidyverse)
+library(brms)
+library(SBC)
+source(here::here("00_R", "simulate_shots_3.R"))
+```
+
+First we generate 1,000 synthetic observations using our simulate_l2m function
+
+```{r}
+seed <- 123
+
+synthetic_data <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 5, seed = seed)
+```
+
+We'll define our model using brms syntax:
+
+```{r}
+# Define the model formula
+foul_binomial_formula_varying_slopes_mo <- bf(
+  shots_defended_made | trials(shots_defended_total) ~ 
+    1 + mo(defender_foul_count) +
+    (1 + mo(defender_foul_count) | shot_movement) +
+    (1 + mo(defender_foul_count) | shot_zone) +
+    (1 + mo(defender_foul_count) | defender_position) +
+    (1 + mo(defender_foul_count) | primary_defender) +
+    (1 + mo(defender_foul_count) | defensive_team) +
+    (1 | offensive_team) 
+)
+
+# default brms priors
+default_priors <- default_prior(foul_binomial_formula_varying_slopes_mo)
+
+foul_priors_1 <- c(
+  prior(normal(0, 0.5), class = "b"),  # Fixed effects
+  prior(normal(0, 0.5), class = "sd"),  # Random effect standard deviations
+  prior(lkj(2), class = "cor")  # Random effect correlations
+)
+
+foul_priors_2 <- c(
+  prior(normal(0, 1), class = "b"),  # Fixed effects
+  # Random effects using exponential prior for SD
+  prior(exponential(1), class = "sd"),
+  prior(lkj(2), class = "cor")
+)
+
+foul_priors_3 <- c(
+  prior(normal(0, 1), class = "Intercept"),  # Fixed effects, weakly regularizing
+  prior(normal(0.2, 0.5), class = "b", coef = "modefender_foul_count"), # Likely positive effect, likely small
+  prior(exponential(1), class = "sd"),
+  prior(dirichlet(c(1, 1, 1, 1.5, 1.5)), class = "simo", coef = "modefender_foul_count1"),
+  prior(lkj(2), class = "cor")
+)
+
+```
+
+```{r}
+# Create synthetic dataframe for modeling
+synthetic_df <- synthetic_data
+```
+
+```{r}
+# Perform prior predictive checks
+prior_check_model_default <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo,
+  data = synthetic_df,
+  family = binomial(link = "logit"),
+  prior = default_priors,
+  sample_prior = "only",  # Only sample from priors
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  warmup = 500,
+  seed = 42,
+  backend = "cmdstanr"
+)
+
+prior_check_model_1 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo,
+  data = synthetic_df,
+  family = binomial(link = "logit"),
+  prior = foul_priors_1,
+  sample_prior = "only",  # Only sample from priors
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  warmup = 500,
+  seed = 42,
+  backend = "cmdstanr"
+)
+
+prior_check_model_2 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo,
+  data = synthetic_df,
+  family = binomial(link = "logit"),
+  prior = foul_priors_2,
+  sample_prior = "only",  # Only sample from priors
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  warmup = 500,
+  seed = 42,
+  backend = "cmdstanr"
+)
+
+prior_check_model_3 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo,
+  data = synthetic_df,
+  family = binomial(link = "logit"),
+  prior = foul_priors_3,
+  sample_prior = "only",  # Only sample from priors
+  chains = 2,
+  cores = 2,
+  iter = 1000,
+  warmup = 500,
+  seed = 42,
+  backend = "cmdstanr"
+)
+```
+
+```{r}
+# Function to generate prior predictive check plots
+generate_prior_check_plots <- function(model, model_name) {
+  # Generate predictions
+  prior_predictions <- posterior_predict(model)
+  prior_means <- colMeans(prior_predictions)
+  
+  # Create a data frame for plotting
+  prior_plot_data <- data.frame(
+    observed = synthetic_df$shots_defended_made,
+    predicted = prior_means,
+    position = synthetic_df$defender_position
+  )
+  
+  # Plot prior predictions vs observed
+  p1 <- ggplot(prior_plot_data, aes(x = observed, y = predicted, color = position)) +
+    geom_point(alpha = 0.6) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+    labs(title = paste("Prior Predictive Check -", model_name),
+         x = "Observed Shots Made",
+         y = "Predicted Shots Made") +
+    theme_minimal()
+  
+  # Extract prior draws
+  prior_draws <- as_draws_df(model)
+  
+  # Get fixed effect column name
+  b_cols <- grep("^b_mo", colnames(prior_draws), value = TRUE)
+  if (length(b_cols) > 0) {
+    b_col <- b_cols[1]
+  } else {
+    b_col <- "b_Intercept" # Fallback
+  }
+  
+  # Plot prior distributions for fixed effects
+  p2 <- ggplot(prior_draws, aes_string(x = b_col)) +
+    geom_density(fill = "steelblue", alpha = 0.5) +
+    labs(title = paste("Prior Distribution:", model_name),
+         x = "Effect Size",
+         y = "Density") +
+    theme_minimal()
+  
+  # Plot prior distributions for random effect standard deviations
+  sd_cols <- grep("^sd_", colnames(prior_draws), value = TRUE)
+  if (length(sd_cols) > 0) {
+    sd_col <- sd_cols[1]
+    
+    p3 <- ggplot(prior_draws, aes_string(x = sd_col)) +
+      geom_density(fill = "steelblue", alpha = 0.5) +
+      labs(title = paste("Random Effect SD:", model_name),
+           x = "Standard Deviation",
+           y = "Density") +
+      theme_minimal()
+    
+    return(list(p1 = p1, p2 = p2, p3 = p3))
+  }
+  
+  return(list(p1 = p1, p2 = p2))
+}
+```
+
+```{r}
+# Generate plots for each model
+plots_default <- generate_prior_check_plots(prior_check_model_default, "Default Priors")
+plots_1 <- generate_prior_check_plots(prior_check_model_1, "Prior Set 1")
+plots_2 <- generate_prior_check_plots(prior_check_model_2, "Prior Set 2")
+plots_3 <- generate_prior_check_plots(prior_check_model_3, "Prior Set 3")
+
+# Display plots comparing predicted vs observed
+library(patchwork)
+plots_default$p1 + plots_1$p1 + plots_2$p1 + plots_3$p1 + 
+  plot_layout(ncol = 2) + 
+  plot_annotation(title = "Comparison of Prior Predictive Checks across Models")
+
+# Display plots comparing fixed effects
+plots_default$p2 + plots_1$p2 + plots_2$p2 + plots_3$p2 + 
+  plot_layout(ncol = 2) + 
+  plot_annotation(title = "Comparison of Fixed Effects Priors")
+
+# Display plots comparing random effects SDs
+plots_default$p3 + plots_1$p3 + plots_2$p3 + plots_3$p3 + 
+  plot_layout(ncol = 2) + 
+  plot_annotation(title = "Comparison of Random Effects SD Priors")
+```
+
+```{r}
+# Compare posterior predictive checks
+pp_check_plots <- list(
+  pp_default = pp_check(prior_check_model_default, type = "dens_overlay", ndraws = 50),
+  pp_1 = pp_check(prior_check_model_1, type = "dens_overlay", ndraws = 50),
+  pp_2 = pp_check(prior_check_model_2, type = "dens_overlay", ndraws = 50),
+  pp_3 = pp_check(prior_check_model_3, type = "dens_overlay", ndraws = 50)
+)
+
+# Display posterior predictive check plots
+pp_check_plots$pp_default + pp_check_plots$pp_1 + pp_check_plots$pp_2 + pp_check_plots$pp_3 + 
+  plot_layout(ncol = 2) + 
+  plot_annotation(title = "Comparison of Posterior Predictive Checks")
+```
+
+```{r}
+# Compare the range of predicted values from each model
+predict_range <- function(model, model_name) {
+  preds <- posterior_predict(model)
+  pred_means <- colMeans(preds)
+  data.frame(
+    model = model_name,
+    min_pred = min(pred_means),
+    mean_pred = mean(pred_means),
+    median_pred = median(pred_means),
+    max_pred = max(pred_means)
+  )
+}
+
+pred_ranges <- rbind(
+  predict_range(prior_check_model_default, "Default"),
+  predict_range(prior_check_model_1, "Prior 1"),
+  predict_range(prior_check_model_2, "Prior 2"),
+  predict_range(prior_check_model_3, "Prior 3")
+)
+
+pred_ranges
+
+# Visualize the range of predictions
+ggplot(pred_ranges, aes(x = model, y = mean_pred)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = min_pred, ymax = max_pred), width = 0.2) +
+  labs(title = "Range of Predicted Values by Prior",
+       x = "Prior Set",
+       y = "Predicted Value") +
+  theme_minimal()
+```
+
+```{r}
+default_priors <- default_prior(foul_binomial_model)
+
+# Fit the model
+foul_binomial_model_default <- brm(
+  formula = foul_binomial_formula,
+  data = synthetic_df,
+  family = binomial(link = "logit"),
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr"
+)
+
+default_priors <- default_prior(foul_binomial_model_default)
+
+# Check model summary
+summary(foul_binomial_model_default)
+
+# Check model diagnostics
+plot(foul_binomial_model_default)
+
+# Posterior predictive checks
+pp_check(foul_binomial_model, type = "dens_overlay", ndraws = 100)
+
+```
+
+```{r}
+library(SBC)
+
+generator <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes_mo, family = binomial(link = "logit"), data = synthetic_df, prior = foul_priors_3, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("05-1_models/brms_generator_varying_slopes_mo.stan")
+                                )
+
+set.seed(seed)
+
+datasets <- generate_datasets(generator, 1000)
+
+prior_sd <- calculate_prior_sd(datasets)
+
+backend <- SBC_backend_brms_from_generator(generator, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_1000 <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = "05-2_sbc-results/results_vs-mo_1000")
+
+plot_rank_hist(results_1000)
+
+plot_ecdf_diff(results_1000)
+
+hist(results_1000$stats$rhat)
+
+hist(results_1000$stats$ess_bulk)
+
+hist(results_1000$stats$z_score)
+
+z_score_results_1000 <- results_1000$stats$z_score
+
+contraction_result_1000 <- 1 - (results_1000$stats$sd / prior_sd)**2
+
+
+plot(results_1000, z_score_results_1000, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     xlim=c(0, 1), xlab="Posterior Contraction",
+     ylim=c(-5, 5), ylab="Posterior z-Score")
+
+
+
+```
+
+```{r}
+
+generator_2 <- SBC_generator_function(simulate_nba_shots_sbc,
+                                      n_observations = 1000,
+                                      n_defenders = 30,
+                                      n_teams = 6)
+
+datasets_func <- generate_datasets(generator_2, 10)
+
+backend_func <- SBC_backend_brms(formula = foul_binomial_formula, family = binomial(link = "logit"),
+                      backend = "cmdstanr", prior = foul_priors_2, chains = 1,
+                      template_data = datasets_func$generated[[1]],
+                      control = list(adapt_delta = 0.95),
+                      out_stan_file = file.path("05-1_models/brms_backend_3.stan"))
+
+results_func <- compute_SBC(datasets_func, backend_func,
+                    cache_mode = "results", 
+                    cache_location = file.path("fourth"))
+
+plot_rank_hist(results_func)
+
+plot_ecdf_diff(results_func)
+
+datasets_func_100 <- generate_datasets(generator_2, 100)
+
+results_func_100 <- compute_SBC(datasets_func, backend_func,
+                    cache_mode = "results", 
+                    cache_location = file.path("fifth"))
+
+plot_rank_hist(results_func_100)
+
+
+```
+
+```{r}
+simulate_nba_shots_sbc(n_observations = 1000,n_defenders = 30, n_teams = 6)
+
+generator_3 <- SBC_generator_function(simulate_nba_shots_sbc,
+                                      n_observations = 1000,
+                                      n_defenders = 30,
+                                      n_teams = 6)
+
+datasets_func_3.10 <- generate_datasets(generator_3, 10)
+
+backend_func_3.10 <- SBC_backend_brms(formula = foul_binomial_formula, family = binomial(link = "logit"),
+                      backend = "cmdstanr", prior = foul_priors_2, chains = 1,
+                      template_data = datasets_func_3.10$generated[[1]],
+                      control = list(adapt_delta = 0.95),
+                      out_stan_file = file.path("05-1_models/brms_backend_3.10.stan"))
+
+results_func_3.10 <- compute_SBC(datasets_func, backend_func,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_func_3.10"))
+
+plot_rank_hist(results_func_3.10)
+
+plot_ecdf(results_func_3.10)
+```
+
+```{r}
+generator_4 <- SBC_generator_function(simulate_nba_shots_sbc_2,
+                                      n_observations = 1000,
+                                      n_defenders = 30,
+                                      n_teams = 6)
+
+datasets_func_4.10 <- generate_datasets(generator_3, 10)
+
+backend_func_4.10 <- SBC_backend_brms(formula = foul_binomial_formula, family = binomial(link = "logit"),
+                      backend = "cmdstanr", prior = foul_priors_2, chains = 1,
+                      template_data = datasets_func_4.10$generated[[1]],
+                      control = list(adapt_delta = 0.95),
+                      out_stan_file = file.path("05-1_models/brms_backend_4.10.stan"))
+
+results_func_4.10 <- compute_SBC(datasets_func, backend_func,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_func_4.10"))
+
+plot_rank_hist(results_func_4.10)
+
+plot_ecdf(results_func_4.10)
+```
+
+```{r}
+simulate_nba_shots_sbc(n_observations = 1000, n_defenders = 30, n_teams = 6)
+
+generator_3 <- SBC_generator_function(simulate_nba_shots_sbc,
+                                      n_observations = 1000,
+                                      n_defenders = 30,
+                                      n_teams = 6)
+
+datasets_func_3.100 <- generate_datasets(generator_3, 100)
+
+backend_func_3.100 <- SBC_backend_brms(formula = foul_binomial_formula, family = binomial(link = "logit"),
+                      backend = "cmdstanr", prior = foul_priors_2, chains = 1,
+                      template_data = datasets_func_3.100$generated[[1]],
+                      control = list(adapt_delta = 0.95),
+                      out_stan_file = file.path("05-1_models/brms_backend_3.10.stan"))
+
+results_func_3.10 <- compute_SBC(datasets_func, backend_func,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_func_3.10"))
+
+plot_rank_hist(results_func_3.10)
+
+plot_ecdf(results_func_3.10)
+```

@@ -36,26 +36,26 @@ dag_3 <- dagify(
 )
 
 # Plot dag_3 with improved readability and visual hierarchy
-ggdag(dag_3) +
+ggdag_parents(dag_3, "shot_prob") +
   theme_dag() +
   theme(
-    legend.position = "right",
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.key.size = unit(0.5, "cm"),  # Make legend keys smaller
+    legend.text = element_text(size = 8),  # Make legend text smaller
+    legend.margin = margin(0, 0, 0, 0),  # Reduce legend margins
+    legend.box.spacing = unit(0.1, "cm"),  # Reduce space between legend and plot
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
     text = element_text(size = 12)
   ) +
   scale_adjusted() +
   geom_dag_point(
       size = 20
-  ) +
-  scale_color_brewer(
-    palette = "Set1",
-    name = "Variable Type"
-  ) +
+  )  +
   geom_dag_edges(edge_width = 1) +
   geom_dag_label(
     aes(label = label),
     size = 2,
     color = "black",
-    fontface = "bold")
+    fontface = "bold") 
 ```
-

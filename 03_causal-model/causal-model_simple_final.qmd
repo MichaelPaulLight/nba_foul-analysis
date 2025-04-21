@@ -1,0 +1,55 @@
+```{r}
+library(tidyverse)
+library(ggdag)
+library(dagitty)
+
+dag_4 <- dagify(
+  shot_prob ~ defender_ability + offensive_team + shot_movement + shot_zone,
+  
+  defender_ability ~ defensive_skill + defensive_pressure + defensive_team,
+
+  defensive_pressure ~ position + fouls,  # More fouls reduce defensive pressure
+  
+  outcome = "shot_prob",
+  exposure = "fouls",
+  labels = c(
+    "shot_prob" = "Shot Making\nProbability",
+    "offensive_team" = "Opposing\nOffense",
+    "shot_movement" = "Shot\nType",
+    "shot_zone" = "Shot\nLocation",
+    "defender_ability" = "Defender\nAbility",
+    "offense_quality" = "Offense\nQuality",
+    "defensive_skill" = "Defensive\nSkill",
+    "defensive_pressure" = "Defensive\nPressure",
+    "position" = "Position",
+    "defensive_team" = "Defensive\nTeam",
+    "fouls" = "Accumulated\nFouls"
+  )
+)
+
+# Plot dag_3 with improved readability and visual hierarchy
+ggdag_parents(dag_4, "shot_prob") +
+  theme_dag() +
+  scale_color_hue(breaks = c("parent", "child")) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.key.size = unit(0.5, "cm"),  # Make legend keys smaller
+    legend.text = element_text(size = 8),  # Make legend text smaller
+    legend.margin = margin(0, 0, 0, 0),  # Reduce legend margins
+    legend.box.spacing = unit(0.1, "cm"),  # Reduce space between legend and plot
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    text = element_text(size = 12)
+  ) +
+  scale_adjusted() +
+  geom_dag_point(
+      size = 20
+  )+
+  geom_dag_edges_link(edge_width = 1) +
+  geom_dag_label(
+    aes(label = label),
+    size = 2,
+    color = "black",
+    fontface = "bold")
+```
+

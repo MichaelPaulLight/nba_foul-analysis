@@ -370,6 +370,17 @@ pbp_poss_final <- pbp_poss %>%
               distinct(game_id = as.numeric(game_id), game_date = as.Date(game_date)))
 
 ########## Add garbage time
+# Garbage time is defined based on three criteria:
+# 1. Score differential (margin) - higher thresholds early in 4th quarter
+# 2. Game time remaining - different thresholds at different points in 4th quarter
+# 3. Number of starters on the floor - 2 or fewer starters total between both teams
+#
+# Specifically:
+# - Last 12-9 minutes (Q4): margin >= 25 points with ≤2 starters
+# - Last 9-6 minutes (Q4): margin >= 20 points with ≤2 starters  
+# - Last 6-0 minutes (Q4): margin >= 10 points with ≤2 starters
+# 
+# After initial flagging, we ensure no "garbage time" events occur before "non-garbage time" events
 
 pbp_final_gt <- pbp_poss_final %>%
   left_join(starters_quarters %>%

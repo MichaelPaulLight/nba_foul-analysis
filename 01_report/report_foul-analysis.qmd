@@ -51,19 +51,25 @@ At a broader level, developing robust defensive metrics from public data could h
 
 The purpose of this research is to estimate the causal influence of individual defender foul counts on the shotmaking probability of opposing offenses under the hypothesis that players' defensive skill is a latent trait that can be estimated using NBA play-by-play data.
 
-This work draws widely from fields including sports analytics, causal inference, Bayesian statistics, and item-response theory.
+As a secondary purpose, this project demonstrates the utility and practical application of simulation based calibration checks in research settings that require agent-based, generative models to study a phenomena of interest. In detailing a principled, Bayesian workflow that incorporates SBC for model development and validation, I hope to help researchers in applied fields leverage their domain expertise to build and use narratively generative models.
 
 ## Confounding Expected
 
 Among the challenges quantifying any aspect of player skill—offensive, defensive, or otherwise—is separating individual from team contribution. For all the simplicity noted in the introduction, basketball isn't a game you play on paper (Simmons, 2009). We expect any analysis or model to be imprecise to some degree, and in this research attempt to account for unobserved confounds associated with shotmaking probability. These include offensive characteristics including offensive team, shot location, and shot type.
 
-We narrow our study of defensive skill to offensive posessions that result in a shot. This means that we define defensive skill primarily as a component of any defending player's ability to affect the probability that any opposing offensive player successfully makes an attempted shot. We do not consider cases where an offensive possession results in a turnover, such as those caused by steals or shot clock violations, which although may be indicitative of good or bad defense being played are ignored for the purpose of this analysis.
+We narrow our study of defensive skill to offensive possessions that result in a shot. This means that we define defensive skill primarily as a component of any defending player's ability to affect the probability that any opposing offensive player successfully makes an attempted shot. We do not consider cases where an offensive possession results in a turnover, such as those caused by steals or shot clock violations, which although may be indicative of good or bad defense being played are ignored for the purpose of this analysis.
 
 As such, any estimate of defensive skill should be interpreted as an estimate of defensive skill in the context of shotmaking, and should be assumed independent of higher-level, latent traits like general defensive skill, general skill, offensive skill, etc.
 
-## Missing Data
+## Data
+
+### Missingness
 
 The dataset used for this paper include complete play-by-play records for every game played during the 2024-2025 NBA season. As our analysis relies on player-level position data reported on official NBA team rosters as of 2025-04-14, players who were included in games earlier in the season but were no longer part of any NBA rosters lacked position data and were dropped from the sample. This included TK players, accounting for TK percent of the raw data.
+
+### Other Assumptions
+
+A major assumption that justifies our use of play-by-play data for inference is that it represents a sample drawn from competitive basketball scenarios. We know, however, that this assumption does not hold under certain conditions, most notably when the score difference between opponents becomes large enough late in a game that coaches pull their competitive players in favor of substitutes, effectively ending competitive play. At this point during a game, we've entered Garbage Time. We assume the data generating process for observations in garbage time to be different from the process that creates observations of competitive play, and although we could model these separate processes, for simplicity's sake elect to exclude garbage time from our sample. Briefly, garbage time is defined as any time when the score difference between opponents is greater than 10 points and there are 2 or fewer starters on the floor between both teams. A complete definition of garbage time can be found in the supplemental code (here::here("00_R", "update-pbp.R")).
 
 ## Measurement
 
@@ -79,39 +85,57 @@ Franks et al. (2015) was one of the pioneering papers in using Bayesian hierarch
 
 Finally, Chu and Swartz (2020) use Bayesian methods to model the time-to-event of a foul as a gamma distributed function of a player, their accumulated number of fouls, and their position. Their goal was to develop a decision-making framework for coaches to use in determining when to sit players at risk of fouling out (usually when a player reaches 6 fouls) of a game. Although similar in spirit, our project doesn't model the time-to-event of a foul nor attempt to help coaches make decisions about sitting their players, but instead focuses on the effect of fouls while players are on the court.
 
+SBC
+
 # Modeling Strategy
 
 This section details the steps taken to develop a novel model for inferring player defensive skill based on the Bayesian workflow proposed by Gelman and Hill (BDA3, 2006) and others. Naming conventions and statistical notation are in line with those used by McElreath.
 
-It includes: - a narrative model of the system of inquiry (Betancourt, TK), - a heuristic causal model motivated by the narrative, - an agent-based generative model used to simulate sythetic observations of shots within a basketball game, - a mathematical model, and - a computational model compatible with the Hamiltonian Monte-Carlo sample implemented in the Stan probabilistic programming language (Carpenter, 2017).
+It includes:
+
+-   a narrative model of the system of inquiry (Betancourt, TK),
+
+-   a heuristic causal model motivated by the narrative,
+
+-   an agent-based generative model used to simulate sythetic observations of shots within a basketball game,
+
+-   \- a statistical model, and
+
+-   a computational model compatible with the Hamiltonian Monte-Carlo sample implemented in the Stan probabilistic programming language (Carpenter, 2017).
 
 ## Narrative Model
 
-\[This section is a work in progress. I plan on taking out the pseudo math, which is currently in place to help me think through the causal model\]
+We assume that basketball is essentially a game of occupying physical space. We assume that at any given time $T$, each location $L$ on a court of dimension TK$\times$TK has some value $V$ to an offensive player OP, who makes decisions so as to maximize $V$. As in chess, defenders are advantaged by anticipating the spatial preferences ($V \mid L$) of their opponents and at time $T-1$ occupying the location $L$ where $V$ is maximized.
 
-We assume that basketball is essentially a game of occupying physical space. We assume that at any given time T, each location L on a court of dimension TKxTK has some value V to an offensive player OP, who makes decisions so as to maximize V. As in chess, defenders are advantaged by anticipating the spatial preferences (V \| L) of their opponents and at time T-1 occupying the location L where V is maximized.
-
-Any given location L can be occupied by no more than one player (offensive or defensive) at any given time T.
+Any given location $L$ can be occupied by no more than one player (offensive or defensive) at any given time $T$.
 
 Essentially, at any given time, offensive players prefer to occupy whatever location on the court maximizes their probability of their team scoring the basket. Defensive players are able to reduce the value of any location in one of two ways:
 
-1.  By using his defensive skill to preemptively occupy the highest value max(V \| T) location, thereby reducing the total offensive value of any available location.
+1.  By using his defensive skill to preemptively occupy the highest value $\max(V \mid T)$ location, thereby reducing the total offensive value of any available location.
 
-2.  Having been unable to preemptively occupy the highest value max(V \| T), by using defensive pressure to initiate contact at max(V \| T), thereby lowering its value directly. This could look functionally something like V \| T \~ f(max(V \| T) + (dp \| T))
+2.  Having been unable to preemptively occupy the highest value $\max(V \mid T)$, by using defensive pressure to initiate contact at $\max(V \mid T)$, thereby lowering its value directly. This could look functionally something like $V \mid T \sim f(\max(V \mid T) + (dp \mid T))$
 
-This assumes that defensive players' ability to affect shotmaking probability for any given L is some additive function of his **defensive pressure** and his **defensive skill**.
+This assumes that defensive players' ability to affect shotmaking probability for any given $L$ is some additive function of his **defensive pressure** and his **defensive skill**.
 
-We can then assume that defenders with more defensive skill require less defensive pressure to affect shotmaking probability for any max(V \| T).
+We can then assume that defenders with more defensive skill require less defensive pressure to affect shotmaking probability for any $\max(V \mid T)$.
 
-We also assume that defenders who use too much defensive pressure to affect the value of max(V \| T) are assessed a foul, which accumulate at some rate over the course of a given game. E.g. foul_assessed \~ f(max(V \| T) - V \| T \>)
+We also assume that defenders who use too much defensive pressure to affect the value of $\max(V \mid T)$ are assessed a foul, which accumulate at some rate over the course of a given game. E.g. $\text{foul\_assessed} \sim f(\max(V \mid T) - V \mid T > \theta)$
 
 We also assume that as a given player's fouls increase, his ability to express physical skill drops, and so a greater proportion of his ability to affect shotmaking is comprised of his defensive skill.
 
-The difference between a given defensive player's affect on the probability that a shot is made when the shot is taken while that defensive player has some number of fouls versus some other number of fouls can be interpreted as the total amount of his shot-affecting ability is owed to his defensive skill versus his defensive pressure.
+The difference between a given defensive player's affect on the probability that a shot is made when the shot is taken while that defensive player has some number of fouls versus some other number of fouls can be interpreted as the total amount of his shot-affecting ability that is owed to his defensive skill versus his defensive pressure.
 
 For an illustration of the narrative model in action we can think about the offensive charge, a case in which a defender anticipates the movements of a driving offensive player to such an accurate degree that he's able to beat that offender to the location of his shot, resulting in contact initiated entirely by the offender that is ultimately called a turnover in favor of the defense. Taking a charge as it's called (perhaps we should think of it as causing a charge) requires no physical pressure on the part of the defender, who instead uses his knowledge of the game and IQ (plausible latent traits of a good defender) to gain the advantage on a possession.
 
 Or, we can consider the defensive move known as "pulling the chair" in the post. In this scenario, a defender anticipates that an offensive player (facing away from the basket) is about to initiate contact to establish position. At the last moment, the defender steps away, causing the offensive player to lose balance. Like drawing a charge, this move relies primarily on defensive skill (anticipation and timing) rather than physical pressure. If pulling the chair effectively reduces shotmaking probability by disrupting the offensive player's balance, we would expect to see minimal correlation between foul accumulation and defensive effectiveness on post-up shots for players who excel at this technique.
+
+Our narrative model tells us that as defenders accumulate fouls, their defensive ability should drop as a function of their defensive pressure. If we think an NBA offenses are these constant, spatial value maximizing machines always, we would expect to see them tilt toward locations on court where defenders who rely on pressure as a greater proportion of overall defensive shot-altering ability would otherwise occupy, resulting in an increase in shots taken either from those locations or others that become free as a result of so called help defense: off ball defenders moving away from their assigned offender to support their beaten, on ball teammates.
+
+Imagine, a physical center who tends to defend back to the basket post-up shots very well finds himself committing an uncharacteristic number of fouls in a tight game against a savvy offense. He starts to play defense with just a bit more caution as a result, increasing the distance between himself and posted-up offensive players by lets say two feet. It doesn't take long for the offense to realize this and start moving into that now-open space closer to the basket, laying the ball in at a higher rate than we'd expect given the offensive and defensive player on court. So the defense responds, with their second biggest player, a power forward, cheating off his defensive assignment to support, which does reduce the layup rate but now leaves the offense free to pass the ball to a now-open power forward for uncontested dunks. Now the dunk rate is up higher than we'd expect. So the defense tries a different tactic, sending help from a third defender on the wing, which would be a great solution if not for the now more-open three point shooter who's happy to take advantage of lighter coverage and a primary defender who needs to close out for a contest rather than stand a foot away at all times with both hands up.
+
+So the defense decides to rotate further, with a fourth guard helping the helper who helped the center…and of course, who knows what that same defense might do facing a different opponent, or if a different player racks up fouls.
+
+The point is that although it may be intuitive to assume less skilled centers beget more shots in the paint, if we carry this assumption forward, the simple game of basketball will break our model at tip off. This motivates us to model the effect of fouls as heterogeneous across positions, players, teams, and shot characteristics. There are many ways to encode this structure in a model, but for the sake of this case study we'll build up a multilevel model with varying intercepts and slopes at the level of defender, team (offense and defense), shot location, and shot type.
 
 ## Causal model
 
@@ -119,16 +143,30 @@ The complete causal model assumed in this paper can be visualized with the follo
 
 {{< include ../03_causal-model/causal-model_final.qmd >}}
 
-This causal diagram includes measurable variables and unmeasurable, latent player traits which we may infer using an assumed narrative
+This causal diagram includes measurable variables and unmeasurable, latent player traits which we may infer using our assumed narrative.
+
+For the purpose of this case study, we'll consider a simpler version of the DAG, whose nodes can be used to develop our generative, statistical, and computational models.
+
+{{< include ../03_causal-model/causal-model_simple_final.qmd >}}
 
 # Generative Model
 
 The [complete generative model](https://github.com/MichaelPaulLight/nba_foul-analysis/blob/main/00_R/simulate_shots.R) used for prior elicitation and model validation via simulation based calibration can be found in the associated materials.
 
-```{r}
-source(here::here("00_R", "simulate_shots.R"))
+Our aim is to build a generator only complex enough to simulate data at a level of detail that matches samples from our true observational model. In this case, that means we'll be simulating individual shot outcomes under conditions resulting from various draws from the prior distributions we've assigned to the parameter space.
 
-small_sim <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10) |> head(5)
+Our generative model operationalizes the narrative assumptions through a flexible simulation framework that accounts for the hierarchical structure of play-by-play data. The simulate_shots function generates synthetic shot-level data by incorporating team effects, player-specific defensive abilities, position-based foul tendencies, and shot characteristics. The simulation creates interactions between foul count and shotmaking probability using a logistic model where a defender's foul burden affects shot success through an additive term.
+
+Importantly, the model captures positional variation in foul tendencies. As a default, we can generate data assuming players are assigned to the traditional five basketball positions (PG, SG, SF, PF, C), with centers having the highest baseline tendency (1.0) and point guards the lowest (0.0). This reflects our domain knowledge of established foul accumulation patterns where players defending closer to the basket accumulate fouls at higher rates than those who spend their time defending the perimeter. The model also allows for the specification of custom positions and position-based foul tendencies, which can be used to generate data that reflects a more nuanced understanding of the relationship between playstyle, foul accumulation, and shotmaking.
+
+Shot preferences are modeled conditionally on defender position and foul count, with offensive strategy adapting to target the defender with the highest foul burden. This approach allows us to generate data that exhibits the theorized relationship between defensive skill, foul accumulation, and shotmaking probability while preserving the multilevel structure necessary for parameter recovery in our statistical model.
+
+We can also generate data that doesn't assume any expert knowledge of positions, shot preferences, or foul tendencies, but instead allows the model to randomly generate these parameters from the prior distributions we've assigned to them for any number of players, positions, and teams.
+
+```{r}
+source(here::here("00_R", "simulate_shots_3.R"))
+
+small_sim <- simulate_shots(n_observations = 10000, n_defenders = 100, n_teams = 10, seed = 123) |> sample_n(5)
 
 small_sim |> gt()
 ```

@@ -6,7 +6,7 @@ source(here::here("00_R", "simulate_shots_sbc.R"))
 source(here::here("00_R", "simulate_shots_sbc_2.R"))
 ```
 
-First we generate 12,500 synthetic observations using our simulate_l2m function
+First we generate 1,000 synthetic observations using our simulate_l2m function
 
 ```{r}
 synthetic_data <- simulate_nba_shots_sbc( 
