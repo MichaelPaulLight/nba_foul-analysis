@@ -14,7 +14,15 @@ This notbook takes our non-aggregated shot-level data and aggregates it for use 
 nonagg_data <- read_parquet(here("02_data", "02-2_data_clean", "shot_level_defender_matchup_data_all.parquet"))
 ```
 
-Because of the way roster data is reported by NBA teams, there are some players for whom we lack position information. For the purpose of this analysis, we'll drop these cases, which end up  
+```{r}
+nonagg_data |> filter(is.na(defender_position)) |> select(primary_defender) |> distinct()
+
+```
+
+
+Because of the way roster data is reported by NBA teams, there are some players for whom we lack position information. For the purpose of this analysis, we'll drop these cases.
+
+We'll also split the shot_action variable into less-specific groupings: shot_movement and shot_type. 
 
 ```{r}
 aggregated_data <- nonagg_data |> 
@@ -24,6 +32,57 @@ aggregated_data <- nonagg_data |>
   rename(defensive_team = slug_team_def,
          offensive_team = slug_team_off) |> 
   filter(!is.na(defender_position))
+
+aggregated_data <- aggregated_data |> 
+  mutate(
+    # Shot movement - how the player is moving
+    shot_movement = case_when(
+      str_detect(shot_action, regex("driving", ignore_case = TRUE)) ~ "driving",
+      str_detect(shot_action, regex("running", ignore_case = TRUE)) ~ "running", 
+      str_detect(shot_action, regex("step back", ignore_case = TRUE)) ~ "step back",
+      str_detect(shot_action, regex("pullup|pull-up", ignore_case = TRUE)) ~ "pullup",
+      str_detect(shot_action, regex("cutting", ignore_case = TRUE)) ~ "cutting",
+      str_detect(shot_action, regex("floating", ignore_case = TRUE)) ~ "floating",
+      TRUE ~ "stationary"
+    ),
+    
+    # Shot type - fundamental shot category
+    shot_type_basic = case_when(
+      str_detect(shot_action, regex("layup", ignore_case = TRUE)) ~ "layup",
+      str_detect(shot_action, regex("dunk", ignore_case = TRUE)) ~ "dunk",
+      str_detect(shot_action, regex("jump shot|jumpshot", ignore_case = TRUE)) ~ "jump shot",
+      str_detect(shot_action, regex("hook", ignore_case = TRUE)) ~ "hook shot",
+      str_detect(shot_action, regex("finger roll", ignore_case = TRUE)) ~ "finger roll",
+      str_detect(shot_action, regex("tip", ignore_case = TRUE)) ~ "tip shot",
+      TRUE ~ "other"
+    ),
+    
+    # Shot technique - style or special technique used
+    shot_technique = case_when(
+      str_detect(shot_action, regex("fadeaway", ignore_case = TRUE)) ~ "fadeaway",
+      str_detect(shot_action, regex("finger roll", ignore_case = TRUE)) ~ "finger roll",
+      str_detect(shot_action, regex("hook", ignore_case = TRUE)) ~ "hook",
+      str_detect(shot_action, regex("turnaround", ignore_case = TRUE)) ~ "turnaround",
+      str_detect(shot_action, regex("floating", ignore_case = TRUE)) ~ "floating",
+      TRUE ~ "standard"
+    ),
+    
+    # Shot angle - relation to basket
+    shot_angle = case_when(
+      str_detect(shot_action, regex("reverse", ignore_case = TRUE)) ~ "reverse",
+      str_detect(shot_action, regex("bank", ignore_case = TRUE)) ~ "bank",
+      TRUE ~ "standard"
+    ),
+    
+    # Shot situation - contextual situation
+    shot_situation = case_when(
+      str_detect(shot_action, regex("putback", ignore_case = TRUE)) ~ "putback",
+      str_detect(shot_action, regex("alley oop", ignore_case = TRUE)) ~ "alley oop",
+      str_detect(shot_action, regex("tip", ignore_case = TRUE)) ~ "tip",
+      str_detect(shot_action, regex("cutting", ignore_case = TRUE)) ~ "cutting",
+      TRUE ~ "standard"
+    )
+  )
 
 # Function to create and save samples
 create_and_save_samples <- function(sample_size) {
@@ -66,7 +125,7 @@ create_and_save_samples <- function(sample_size) {
 }
 
 # Create samples of different sizes
-sample_sizes <- c(5000, 10000, 30000, 60000, 100000)
+sample_sizes <- c(5000, 10000, 30000, 60000, 100000, 200000, nrow(aggregated_data))
 
 # Create and save all samples
 sample_counts <- map(sample_sizes, create_and_save_samples)

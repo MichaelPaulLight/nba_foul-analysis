@@ -44,13 +44,6 @@ data_sample_100000 <- data_sample_100000 |>
                                    levels = 0:5,
                                    ordered = TRUE))
 
-data_sample_200000 <- read_parquet(here("02_data", "02-3_data_modeling", "sample_2e+05_factor.parquet"))
-
-data_sample_200000 <- data_sample_200000 |> 
-  mutate(defender_foul_count = factor(defender_foul_count, 
-                                   levels = 0:5,
-                                   ordered = TRUE))
-
 data_sample_full <- read_parquet(here("02_data", "02-3_data_modeling", "sample_359266_factor.parquet"))
 
 data_sample_full <- data_sample_full |> 
@@ -59,65 +52,39 @@ data_sample_full <- data_sample_full |>
                                    ordered = TRUE))
 
 data_sample_full_agg <- data_sample_full |> 
-  group_by(offensive_team, defensive_team, primary_defender, shot_movement, shot_type_basic, shot_zone, defender_position, defender_foul_count) |> 
+  group_by(offensive_team, defensive_team, shot_movement, shot_type_basic, shot_zone, defender_position, defender_foul_count) |> 
+  summarize(shots_defended_made = sum(shots_defended_made),
+         shots_defended_total = sum(shots_defended_total))
+
+data_sample_100000_agg <- data_sample_100000 |> 
+  group_by(offensive_team, defensive_team, shot_movement, shot_type_basic, shot_zone, defender_position, defender_foul_count) |> 
   summarize(shots_defended_made = sum(shots_defended_made),
          shots_defended_total = sum(shots_defended_total))
 ```
 
 ```{r}
-foul_binomial_formula_varying_slopes_mo_3 <- bf(
-  shots_defended_made | trials(shots_defended_total) ~ 
+foul_neg_binomial_formula_varying_slopes_mo <- bf(
+  shots_defended_total ~ 
     1 + mo(defender_foul_count) +
-    (1 + mo(defender_foul_count) | shot_action) +
     (1 + mo(defender_foul_count) | shot_zone) +
+    (1 + mo(defender_foul_count) | shot_movement) +
+    (1 + mo(defender_foul_count) | shot_type_basic) +
+    (1 + mo(defender_foul_count) | shot_technique) +
+    (1 + mo(defender_foul_count) | shot_situation) +
     (1 + mo(defender_foul_count) | defender_position) +
     (1 + mo(defender_foul_count) | primary_defender) +
     (1 | offensive_team)
 )
 
-foul_binomial_formula_varying_slopes_mo_4 <- bf(
-  shots_defended_made | trials(shots_defended_total) ~ 
+foul_neg_binomial_formula_varying_slopes_mo_2 <- bf(
+  shots_defended_total ~ 
     1 + mo(defender_foul_count) +
-    (1 + mo(defender_foul_count) | shot_action) +
     (1 + mo(defender_foul_count) | shot_zone) +
-    (1 + mo(defender_foul_count) | defender_position) +
-    (1 + mo(defender_foul_count) | primary_defender) +
-    (1 + mo(defender_foul_count) | shot_area) +
-    (1 | offensive_team) 
-)
-
-foul_binomial_formula_varying_slopes_mo_5 <- bf(
-  shots_defended_made | trials(shots_defended_total) ~ 
-    1 + mo(defender_foul_count) +
-    (1 + mo(defender_foul_count) | shot_action) +
-    (1 + mo(defender_foul_count) | shot_zone) +
-    (1 + mo(defender_foul_count) | defender_position) +
-    (1 + mo(defender_foul_count) | primary_defender) +
-    (1 + mo(defender_foul_count) | shot_area) +
-    (1 + mo(defender_foul_count) | defensive_team) +
-    (1 | offensive_team) 
-)
-
-foul_binomial_formula_varying_slopes_mo_6 <- bf(
-  shots_defended_made | trials(shots_defended_total) ~ 
-    1 + mo(defender_foul_count) +
-    (1 + mo(defender_foul_count) | shot_action) +
-    (1 + mo(defender_foul_count) | shot_zone) +
-    (1 + mo(defender_foul_count) | defender_position) +
-    (1 + mo(defender_foul_count) | primary_defender) +
-    (1 + mo(defender_foul_count) | defensive_team) +
-    (1 | offensive_team) 
-)
-
-foul_binomial_formula_varying_slopes_mo_7 <- bf(
-  shots_defended_made | trials(shots_defended_total) ~ 
-    1 + mo(defender_foul_count) +
     (1 + mo(defender_foul_count) | shot_movement) +
-    (1 + mo(defender_foul_count) | shot_zone) +
+    (1 + mo(defender_foul_count) | shot_type_basic) +
     (1 + mo(defender_foul_count) | defender_position) +
-    (1 + mo(defender_foul_count) | primary_defender) +
     (1 + mo(defender_foul_count) | defensive_team) +
-    (1 | offensive_team) 
+    (1 + mo(defender_foul_count) | offensive_team)
 )
 
 prior_custom_vs_mo <- c(
@@ -130,10 +97,10 @@ prior_custom_vs_mo <- c(
 ```
 
 ```{r}
-foul_binomial_model_vs_mo_3 <- brm(
-  formula = foul_binomial_formula_varying_slopes_mo_3,
-  data = data_sample,
-  family = binomial(link = "logit"),
+foul_neg_binomial_model_vs_mo_60000 <- brm(
+  formula = foul_neg_binomial_formula_varying_slopes_mo,
+  data = data_sample_60000,
+  family = negbinomial(),
   prior = prior_custom_vs_mo,
   chains = 4,
   cores = 4,
@@ -142,7 +109,22 @@ foul_binomial_model_vs_mo_3 <- brm(
   seed = 42,
   control = list(adapt_delta = 0.95),
   backend = "cmdstanr",
-  file = ("foul_binomial_model_vs_mo_3_5000.rds")
+  file = ("foul_neg-binomial_model_vs_mo_60000.rds")
+)
+
+foul_neg_binomial_model_vs_mo_2_100000 <- brm(
+  formula = foul_neg_binomial_formula_varying_slopes_mo_2,
+  data = data_sample_100000_agg,
+  family = negbinomial(),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_neg-binomial_model_vs_mo_2_100000.rds")
 )
 
 foul_binomial_model_vs_mo_3_30000 <- brm(
@@ -250,9 +232,9 @@ foul_binomial_model_vs_mo_5_100000 <- brm(
   file = ("foul_binomial_model_vs_mo_5_100000.rds")
 )
 
-foul_binomial_model_vs_mo_6_200000 <- brm(
-  formula = foul_binomial_formula_varying_slopes_mo_6,
-  data = data_sample_200000,
+foul_binomial_model_vs_mo_2 <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo_2,
+  data = data_sample,
   family = binomial(link = "logit"),
   prior = prior_custom_vs_mo,
   chains = 4,
@@ -262,24 +244,32 @@ foul_binomial_model_vs_mo_6_200000 <- brm(
   seed = 42,
   control = list(adapt_delta = 0.95),
   backend = "cmdstanr",
-  file = ("foul_binomial_model_vs_mo_6_200000.rds")
+  file = ("foul_binomial_model_vs_mo_2_10000.rds")
 )
+```
 
-foul_binomial_model_vs_mo_7_full <- brm(
-  formula = foul_binomial_formula_varying_slopes_mo_7,
-  data = data_sample_full_agg,
-  family = binomial(link = "logit"),
-  prior = prior_custom_vs_mo,
-  chains = 4,
-  cores = 4,
-  iter = 2000,
-  warmup = 1000,
-  seed = 42,
-  control = list(adapt_delta = 0.95),
-  backend = "cmdstanr",
-  file = ("foul_binomial_model_vs_mo_7_full.rds")
-)
+```{r}
+foul_binomial_model_vs_1_10000 <- read_rds("foul_binomial_model_vs_1_10000.rds")
 
+foul_binomial_model_vi_1_10000 <- read_rds("foul_binomial_model_vi_1_10000.rds")
+
+foul_binomial_model_vs_mo_1_10000 <- read_rds("foul_binomial_model_vs_mo_1_10000.rds")
+
+foul_binomial_model_vs_mo_2_10000 <- read_rds("foul_binomial_model_vs_mo_2_10000.rds")
+
+loo_1 <- loo(foul_binomial_model_vs_mo_5_10000)
+
+loo_2 <- loo(foul_zero_binomial_model_vs_mo_5_10000)
+
+loo_3 <- loo_subsample(foul_binomial_model_vs_1_10000)
+
+loo_4 <- loo(foul_binomial_model_vi_1_10000)
+
+loo_5 <- loo(foul_binomial_model_vs_mo_1_10000)
+
+loo_6 <- loo(foul_binomial_model_vs_mo_2_10000)
+
+loo_compare(loo_1, loo_2)
 ```
 
 
@@ -295,7 +285,7 @@ library(ggdist)
 library(patchwork)
 
 # 1. Monotonic effect visualization
-monotonic_effect <- foul_binomial_model_vs_mo_5_100000 %>%
+monotonic_effect <- foul_neg_binomial_model_vs_mo_60000 %>%
   spread_draws(b_Intercept, simo_modefender_foul_count1[category]) %>%
   mutate(
     # Calculate the cumulative effect for each foul count
@@ -410,7 +400,7 @@ position_effects <- foul_binomial_model_vs_mo_1 %>%
   theme_minimal()
 
 # 5. Player effects with monotonic slopes
-player_effects <- foul_binomial_model_vs_mo_4_100000 %>%
+player_effects <- foul_neg_binomial_model_vs_mo_60000 %>%
   spread_draws(r_primary_defender[primary_defender,]) %>%
   group_by(primary_defender) %>%
   summarise(
@@ -628,29 +618,8 @@ library(tidybayes)
 library(ggdist)
 library(patchwork)
 
-foul_binomial_model_vs_mo_5_100000%>% 
-  spread_draws(b_Intercept, bsp_modefender_foul_count,
-               simo_modefender_foul_count1[i]) %>% 
-  # simplex parameters are grouped by variable `i`, pivot into same row
-  pivot_wider(names_from = `i`, names_prefix = 'simo_modefender_foul_count1_', values_from = simo_modefender_foul_count1) %>% 
-  mutate(
-    # D is equal to number of categories minus 1
-    D = 5,
-    # for each level of income, get posterior mu
-    mu_cat_1 = b_Intercept,
-    mu_cat_2 = b_Intercept + (bsp_modefender_foul_count * D * (simo_modefender_foul_count1_1)),
-    mu_cat_3 = b_Intercept + (bsp_modefender_foul_count * D * (simo_modefender_foul_count1_1 + simo_modefender_foul_count1_2)),
-    mu_cat_4 = b_Intercept + (bsp_modefender_foul_count * D * (simo_modefender_foul_count1_1 + simo_modefender_foul_count1_2 + simo_modefender_foul_count1_3)),
-    mu_cat_5 = b_Intercept + (bsp_modefender_foul_count * D * (simo_modefender_foul_count1_1 + simo_modefender_foul_count1_2 + simo_modefender_foul_count1_3 + simo_modefender_foul_count1_4)),
-    mu_cat_6 = b_Intercept + (bsp_modefender_foul_count * D * (simo_modefender_foul_count1_1 + simo_modefender_foul_count1_2 + simo_modefender_foul_count1_3 + simo_modefender_foul_count1_4 + simo_modefender_foul_count1_5))
-  ) %>% 
-  # at this point or after pivoting again, you could apply the inverse link function on mu
-  pivot_longer(starts_with('mu_cat'), names_to = 'mu_cat', values_to = 'post_mu') %>% 
-  ggplot(aes(y = post_mu, x = mu_cat))+
-  stat_halfeye()
-
 # 1. Monotonic effect visualization
-monotonic_effect <- foul_binomial_model_vs_mo_5_100000 %>%
+monotonic_effect <- foul_binomial_model_vs_mo_2 %>%
   spread_draws(b_Intercept, simo_modefender_foul_count1[category]) %>%
   mutate(
     # Calculate the cumulative effect for each foul count
@@ -676,7 +645,7 @@ monotonic_effect <- foul_binomial_model_vs_mo_5_100000 %>%
   theme_minimal()
 
 # Get player effects with positions
-player_effects_with_positions <- foul_binomial_model_vs_mo_2 %>%
+player_effects_with_positions <- foul_neg_binomial_model_vs_mo_60000 %>%
   spread_draws(r_primary_defender[primary_defender,]) %>%
   group_by(primary_defender) %>%
   summarise(
@@ -802,13 +771,13 @@ distance_player_effects_by_team
 ```{r}
 library(duckplyr)
 
-defender_teams <- data_sample_200000 |> 
+defender_teams <- data_sample_60000 |> 
   select(primary_defender, defensive_team) |>
   mutate(primary_defender = str_replace_all(primary_defender, " ", "\\.")) |> 
   distinct()
 
 # Create team-based player visualization
-team_player_effects_by_team_intercept <- foul_binomial_model_vs_mo_5_30000 %>%
+team_player_effects_by_team_intercept <- foul_neg_binomial_model_vs_mo_60000 %>%
   spread_draws(r_primary_defender[primary_defender,], b_Intercept) %>%
   group_by(primary_defender) %>%
   mutate(combined_effect = r_primary_defender + b_Intercept) |> 
@@ -856,12 +825,10 @@ team_player_effects_by_team_intercept <- foul_binomial_model_vs_mo_5_30000 %>%
   ) +
   scale_color_brewer(palette = "Set1")
 
-team_player_effects_by_team <- foul_binomial_model_vs_mo_6_200000 %>%
-  spread_draws(b_Intercept, r_primary_defender[primary_defender, term]) %>%
-  filter(term == "modefender_foul_count") |> 
-  median_qi(effect = b_Intercept + r_primary_defender) |> 
-  ggplot(aes(x = effect, y = reorder(primary_defender, effect))) +
-  geom_point()
+team_player_effects_by_team <- foul_neg_binomial_model_vs_mo_60000 %>%
+  spread_draws(r_primary_defender[primary_defender,]) %>%
+  group_by(primary_defender) %>%
+  mutate(combined_effect = r_primary_defender) |> 
   summarise(
     mean_effect = mean(combined_effect),
     lower_95 = quantile(combined_effect, 0.025),
@@ -908,336 +875,31 @@ team_player_effects_by_team
 
 ```
 
-```{r}
-fouls_player_effects_by_team <- foul_binomial_model_vs_mo_5_100000 %>%
-  spread_draws(r_primary_defender[primary_defender,], simo_modefender_foul_count1[fouls]) %>%
-  group_by(primary_defender, fouls) %>%
-  mutate(combined_effect = r_primary_defender + simo_modefender_foul_count1) |> 
-  mean_qi()
-
-fouls_player_effects_by_team_2 <- foul_binomial_model_vs_mo_5_100000 %>%
-  spread_draws(r_primary_defender[primary_defender,], simo_modefender_foul_count1[fouls]) %>%
-  group_by(primary_defender, fouls) %>%
-  mutate(combined_effect = simo_modefender_foul_count1) |> 
-  mean_qi()
-
-fouls_player_effects_by_team_3 <- foul_binomial_model_vs_mo_5_100000 %>%
-  spread_draws(r_primary_defender[primary_defender,], simo_modefender_foul_count1[fouls]) %>%
-  group_by(primary_defender, fouls) %>%
-  mutate(combined_effect = r_primary_defender) |> 
-  mean_qi()
-
-fouls_player_effects_by_team_3 |> 
-  left_join(defender_teams, by = "primary_defender") %>%
-  # Calculate team averages
-  group_by(defensive_team) %>%
-  filter(defensive_team == "OKC") |> 
-  mutate(team_mean = mean(combined_effect)) %>%
-  ungroup() %>%
-  # Order teams and players
-  arrange(team_mean, combined_effect) %>%
-  mutate(
-    defensive_team = factor(defensive_team, levels = unique(defensive_team)),
-    primary_defender = factor(primary_defender, levels = unique(primary_defender))
-  ) %>%
-  ggplot(aes(x = combined_effect, y = primary_defender)) +
-  geom_point(size = 2) +
-  geom_errorbarh(aes(xmin = combined_effect.lower, xmax = combined_effect.upper), height = 0) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  facet_wrap(~defensive_team, scales = "free_y") +
-  labs(
-    title = "Player Defensive Effectiveness by Team",
-    subtitle = "Showing top and bottom 5 teams by average defensive effectiveness",
-    x = "Defensive Effect (log-odds)",
-    y = "Player",
-    color = "Defense Distance",
-    caption = "Red line indicates average defensive effectiveness"
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_text(size = 8),
-    plot.title = element_text(size = 14, face = "bold"),
-    plot.subtitle = element_text(size = 10),
-    strip.text = element_text(size = 10, face = "bold"),
-    legend.position = "bottom"
-  ) +
-  scale_color_brewer(palette = "Set1") +
-  facet_wrap(vars(fouls), scales = "free_y")
-```
-```{r}
-player_effects_by_zone <- foul_binomial_model_vs_mo_5_100000 %>%
-  spread_draws(b_Intercept, bsp_modefender_foul_count, r_primary_defender[primary_defender, term])
-
-test <- player_effects_by_zone |> 
-  filter(term == "modefender_foul_count") |> 
-  group_by(primary_defender) %>%
-  mutate(effect = b_Intercept + r_primary_defender + bsp_modefender_foul_count) |> 
-  mean_qi(effect)
-
-test |> 
-  arrange(effect) |> 
-  slice_head(n = 30) |> 
-  ggplot(aes(x = effect, y = reorder(primary_defender, effect), xmin = .lower, xmax = .upper)) + 
-  geom_halfeyeh()
-
-zone_effects <- foul_binomial_model_vs_mo_6_200000 %>%
-  spread_draws(b_Intercept, r_shot_zone[shot_zone, term]) |> 
-  filter(term == "modefender_foul_count") |> 
-  group_by(shot_zone) %>%
-  mutate(effect = b_Intercept + r_shot_zone) |> 
-  mean_qi(effect) |> 
-  arrange(effect) |> 
-  slice_head(n = 30) |> 
-  ggplot(aes(x = effect, y = reorder(shot_zone, effect), xmin = .lower, xmax = .upper)) + 
-  geom_pointinterval()
-  
-foul_binomial_model_vs_mo_6_200000 %>%
-  spread_draws(b_Intercept, r_defensive_team[defensive_team, term]) |> 
-  filter(term == "modefender_foul_count") |> 
-  group_by(defensive_team) %>%
-  mutate(effect = b_Intercept + r_defensive_team) |> 
-  mean_qi(effect) |> 
-  arrange(effect) |> 
-  slice_head(n = 30) |> 
-  ggplot(aes(x = effect, y = reorder(defensive_team, effect), xmin = .lower, xmax = .upper)) + geom_pointinterval()
-
-foul_binomial_model_vs_mo_6_200000 %>%
-  spread_draws(b_Intercept, r_shot_action[shot_action, term]) |> 
-  filter(term == "modefender_foul_count") |> 
-  group_by(shot_action) %>%
-  mutate(effect = b_Intercept + r_shot_action) |> 
-  mean_qi(effect) |> 
-  arrange(effect) |> 
-  ggplot(aes(x = effect, y = reorder(shot_action, effect), xmin = .lower, xmax = .upper)) + 
-  geom_pointinterval()
-
-```
-
-```{r}
-foul_binomial_model_vs_mo_7_full |> 
-  gather_draws(r_shot_zone[shot_zone,]) |> 
-  ggplot(aes(y = shot_zone, x = .value)) + 
-  stat_halfeye()
-
-foul_binomial_model_vs_mo_7_full |> 
-   gather_draws(r_shot_movement[shot_movement,]) |> 
-   ggplot(aes(y = shot_movement, x = .value)) + 
-   stat_halfeye()
-
-foul_binomial_model_vs_mo_7_full |> 
-   gather_draws(r_shot_[shot_movement,]) |> 
-   ggplot(aes(y = shot_movement, x = .value)) + 
-   stat_halfeye()
-
-foul_binomial_model_vs_mo_7_full |> 
-  gather_draws(r_shot_type_basic[shot_type_basic,term]) |> 
-  ggplot(aes(y = shot_type_basic, x = .value)) + 
-  stat_halfeye() +
-  facet_wrap(vars(term))
-
-foul_binomial_model_vs_mo_6_200000 |> 
-  gather_draws(r_defensive_team[defensive_team,term]) |> 
-  ggplot(aes(y = reorder(defensive_team, .value), x = .value)) + 
-  stat_halfeye() +
-  facet_wrap(vars(term), scales = "free_y")
-
-foul_binomial_model_vs_mo_6_200000 |> 
-  gather_draws(r_defensive_team[defensive_team,term]) |> 
-  ggplot(aes(y = reorder(defensive_team, .value), x = .value)) + 
-  stat_halfeye() 
-
-foul_binomial_model_vs_mo_6_200000 |> 
-  gather_draws(r_primary_defender[primary_defender,term]) |> 
-  ggplot(aes(y = reorder(primary_defender, .value), x = .value)) + 
-  stat_halfeye() +
-  lims(y = c(5, 10))
-
-top_bottom_defenders <- foul_binomial_model_vs_mo_6_200000 |> 
-  gather_draws(r_primary_defender[primary_defender,term]) |>
-  filter(term == "modefender_foul_count") |>  # Use the Intercept term for ranking
-  group_by(primary_defender) |>
-  summarise(mean_effect = mean(.value)) |>
-  arrange(desc(mean_effect)) |>  # Sort by effect (descending for best defenders at top)
-  slice(c(1:10, (n()-9):n()))  # Take top 10 and bottom 10
-
-# Join with the full dataset and create plot
-foul_binomial_model_vs_mo_6_200000 |> 
-  gather_draws(r_primary_defender[primary_defender,term]) |>
-  # Filter to only include top/bottom defenders
-  filter(primary_defender %in% top_bottom_defenders$primary_defender) |>
-  # Join with the mean effects for ordering
-  left_join(top_bottom_defenders, by = "primary_defender") |>
-  # Create plot with consistent ordering
-  ggplot(aes(y = reorder(primary_defender, mean_effect), x = .value)) + 
-  stat_halfeye() +
-  # facet_wrap(vars(term), scales = "free_x") +
-  labs(
-    title = "Top and Bottom 10 Defenders",
-    subtitle = "Based on intercept term - higher values = better defense",
-    x = "Defensive Effect",
-    y = "Defender"
-  ) +
-  theme_minimal()
-```
-
-
 I don't like the below plot
 
 ```{r}
-# 1. Monotonic effect visualization
-monotonic_effect <- foul_binomial_model_vs_mo_5_100000 %>%
-  spread_draws(b_Intercept, simo_modefender_foul_count1[category]) %>%
-  mutate(
-    # Calculate the cumulative effect for each foul count
-    effect_0 = b_Intercept,
-    effect_1 = b_Intercept + simo_modefender_foul_count1[1],
-    effect_2 = b_Intercept + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2],
-    effect_3 = b_Intercept + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3],
-    effect_4 = b_Intercept + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4],
-    effect_5 = b_Intercept + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4] + simo_modefender_foul_count1[5]
-  ) %>%
-  pivot_longer(cols = starts_with("effect_"), names_to = "foul_count", values_to = "effect") %>%
-  mutate(foul_count = as.numeric(str_extract(foul_count, "\\d+"))) %>%
-  ggplot(aes(x = foul_count, y = effect)) +
-  stat_lineribbon(.width = c(0.5, 0.8, 0.95), alpha = 0.3) +
-  scale_fill_brewer() +
-  labs(
-    title = "Monotonic Effect of Foul Count on Shot Success",
-    subtitle = "Showing cumulative effect of increasing foul counts",
-    x = "Defender Foul Count",
-    y = "Log-Odds of Shot Success",
-    fill = "Credible Interval"
-  ) +
-  theme_minimal()
+foul_neg_binomial_model_vs_mo_60000 |> 
+  gather_draws(r_shot_movement[shot_movement,term]) |> 
+  ggplot(aes(y = shot_movement, x = .value)) + 
+  stat_halfeye() +
+  facet_wrap(vars(term))
 
-# First, get team-level foul effects
-team_foul_effects <- foul_binomial_model_vs_mo_5_100000 %>%
-  spread_draws(
-    r_defensive_team[defensive_team,],
-    simo_modefender_foul_count1[category]
-  ) %>%
-  # Calculate team-level effects for each foul count
-  mutate(
-    effect_0 = r_defensive_team,
-    effect_1 = r_defensive_team + simo_modefender_foul_count1[1],
-    effect_2 = r_defensive_team + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2],
-    effect_3 = r_defensive_team + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3],
-    effect_4 = r_defensive_team + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4],
-    effect_5 = r_defensive_team + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4] + simo_modefender_foul_count1[5]
-  ) %>%
-  pivot_longer(
-    cols = starts_with("effect_"),
-    names_to = "foul_count",
-    values_to = "team_effect"
-  ) %>%
-  mutate(foul_count = as.numeric(str_extract(foul_count, "\\d+"))) %>%
-  group_by(defensive_team, foul_count) %>%
-  summarise(
-    mean_team_effect = mean(team_effect),
-    lower_team_95 = quantile(team_effect, 0.025),
-    upper_team_95 = quantile(team_effect, 0.975)
-  )
+foul_neg_binomial_model_vs_mo_60000 |> 
+  gather_draws(r_shot_type_basic[shot_type_basic,term]) |> 
+  ggplot(aes(y = shot_type_basic, x = .value)) + 
+  stat_halfeye()
 
-# Then get player-level effects relative to their team
-player_foul_effects <- foul_binomial_model_vs_mo_5_100000 %>%
-  spread_draws(
-    r_primary_defender[primary_defender,],
-    simo_modefender_foul_count1[category]
-  ) %>%
-  # Calculate player-level effects for each foul count
-  mutate(
-    effect_0 = r_primary_defender,
-    effect_1 = r_primary_defender + simo_modefender_foul_count1[1],
-    effect_2 = r_primary_defender + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2],
-    effect_3 = r_primary_defender + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3],
-    effect_4 = r_primary_defender + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4],
-    effect_5 = r_primary_defender + simo_modefender_foul_count1[1] + simo_modefender_foul_count1[2] + simo_modefender_foul_count1[3] + simo_modefender_foul_count1[4] + simo_modefender_foul_count1[5]
-  ) %>%
-  pivot_longer(
-    cols = starts_with("effect_"),
-    names_to = "foul_count",
-    values_to = "player_effect"
-  ) %>%
-  mutate(foul_count = as.numeric(str_extract(foul_count, "\\d+"))) %>%
-  group_by(primary_defender, foul_count) %>%
-  summarise(
-    mean_player_effect = mean(player_effect),
-    lower_player_95 = quantile(player_effect, 0.025),
-    upper_player_95 = quantile(player_effect, 0.975)
-  )
+foul_neg_binomial_model_vs_mo_60000 |> 
+  gather_draws(r_shot_technique[shot_technique,term]) |> 
+  ggplot(aes(y = shot_technique, x = .value)) + 
+  stat_halfeye() +
+  facet_wrap(vars(term))
 
-defender_teams <- data_sample_100000 |> 
-  select(primary_defender, defensive_team) |>
-  mutate(primary_defender = str_replace_all(primary_defender, " ", "\\.")) |> 
-  distinct()
+foul_neg_binomial_model_vs_mo_60000 |> 
+  gather_draws(r_shot_situation[shot_situation,term]) |> 
+  ggplot(aes(y = shot_situation, x = .value)) + 
+  stat_halfeye()
 
-# Combine team and player effects
-combined_effects <- player_foul_effects %>%
-  left_join(defender_teams, by = join_by(primary_defender)) |> 
-  left_join(team_foul_effects, by = join_by(defensive_team, foul_count)) %>%
-  # Calculate player effect relative to team
-  mutate(
-    relative_effect = mean_player_effect - mean_team_effect,
-    relative_lower = lower_player_95 - mean_team_effect,
-    relative_upper = upper_player_95 - mean_team_effect
-  )
-
-# Select top and bottom teams
-top_bottom_teams <- team_foul_effects %>%
-  group_by(defensive_team) %>%
-  summarise(avg_effect = mean(mean_team_effect)) %>%
-  arrange(avg_effect) %>%
-  slice(c(1:5, (n()-4):n())) %>%
-  pull(defensive_team)
-
-# Create visualization
-foul_effects_plot <- combined_effects %>%
-  filter(defensive_team %in% top_bottom_teams[10]) %>%
-  ggplot(aes(x = foul_count)) +
-  # Team effect
-  geom_line(aes(y = mean_team_effect), color = "black", size = 1.5) +
-  geom_ribbon(aes(ymin = lower_team_95, ymax = upper_team_95), 
-              fill = "black", alpha = 0.1) +
-  # Player effects
-  geom_line(aes(y = mean_player_effect, group = primary_defender, 
-                color = relative_effect), alpha = 0.7) +
-  geom_ribbon(aes(ymin = lower_player_95, ymax = upper_player_95, 
-                  group = primary_defender, fill = relative_effect), 
-              alpha = 0.1) +
-  facet_wrap(~primary_defender, scales = "free_y", ncol = 2) +
-  scale_color_gradient2(
-    low = "blue",
-    mid = "gray",
-    high = "red",
-    midpoint = 0,
-    name = "Player Effect Relative to Team"
-  ) +
-  scale_fill_gradient2(
-    low = "blue",
-    mid = "gray",
-    high = "red",
-    midpoint = 0,
-    name = "Player Effect Relative to Team"
-  ) +
-  labs(
-    title = "Team and Player Foul Effects",
-    subtitle = "Black line shows team effect, colored lines show individual players",
-    x = "Foul Count",
-    y = "Defensive Effect (log-odds)",
-    caption = "Color indicates how much better (red) or worse (blue) than team average"
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_text(size = 8),
-    plot.title = element_text(size = 14, face = "bold"),
-    plot.subtitle = element_text(size = 10),
-    strip.text = element_text(size = 10, face = "bold"),
-    legend.position = "bottom"
-  ) +
-  scale_x_continuous(breaks = 0:5) 
-
-# Display the visualization
-foul_effects_plot
 ```
 
 
