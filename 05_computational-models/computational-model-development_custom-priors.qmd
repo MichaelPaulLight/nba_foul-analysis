@@ -250,7 +250,7 @@ plot_ecdf_diff(results_100_custom)
 
 plot_ecdf(results_100_custom)
 
-z_score_results_100_custom <- results_100_custom$stats$z_score |> 
+z_score_results_100_custom <- results_100_custom$stats$z_score 
 
 contraction_result_100_custom <- 1 - (results_100_custom$stats$sd / prior_sd)**2
 

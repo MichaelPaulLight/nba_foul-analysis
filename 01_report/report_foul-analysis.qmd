@@ -238,6 +238,8 @@ foul_binomial_formula_varying_slopes_mo_2 <- bf(
 )
 ```
 
+The nearly maximal multilevel structure demonstrated above, in which all covariates vary over all groupings (except, in our case, offensive_team_id), is chosen in the interest of robustness and conservatism. (Barr et al., 2013)
+
 # Prior Selection and Predictive Checks
 
 Priors were selected to encode domain expertise and to weakly regularize model expectations in others.
@@ -363,6 +365,8 @@ The full Bayesian model fit above could absolutely be probed for interesting ins
 ## Appendix A.
 
 ### References
+
+Barr DJ, Levy R, Scheepers C, Tily HJ. Random effects structure for confirmatory hypothesis testing: Keep it maximal. J Mem Lang. (2013) Apr;68(3):10.1016/j.jml.2012.11.001. doi: 10.1016/j.jml.2012.11.001.
 
 Bürkner P (2017). "brms: An R Package for Bayesian Multilevel Models Using Stan." *Journal of Statistical Software*, **80**(1), 1–28. [doi:10.18637/jss.v080.i01](https://doi.org/10.18637/jss.v080.i01).
 

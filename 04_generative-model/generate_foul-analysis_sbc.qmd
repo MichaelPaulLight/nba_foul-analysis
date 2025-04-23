@@ -192,9 +192,7 @@ shot_characteristics <- shot_df |>
     variables = true_parameters,
     generated = final_dataset
   )
-} 
 ```
-
 ```{r}
 simulate_nba_shots_sbc(n_observations = 1000,
    n_defenders = 30,
@@ -246,4 +244,5 @@ simulate_nba_shots_sbc(n_observations = 1000,
    n_teams = 6,
    seed = 123)
 ```
+
 
