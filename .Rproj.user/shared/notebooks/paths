@@ -11,6 +11,7 @@
 /Users/michaellight/Documents/GitHub/milestone_2/notebooks/neg-binomial_modeling/foul-modeling-workflow_varying-effects_team.qmd="311AA891"
 /Users/michaellight/Documents/GitHub/milestone_2/reporting/report.qmd="55FB6651"
 /Users/michaellight/Documents/GitHub/nba_foul-analysis/.Rhistory="30DE22F8"
+/Users/michaellight/Documents/GitHub/nba_foul-analysis/.gitignore="630E1415"
 /Users/michaellight/Documents/GitHub/nba_foul-analysis/00_R/simulate_shots.R="96EBA7AE"
 /Users/michaellight/Documents/GitHub/nba_foul-analysis/00_R/simulate_shots_2.R="2E036CC9"
 /Users/michaellight/Documents/GitHub/nba_foul-analysis/00_R/simulate_shots_disaggregated.R="07208DA8"
@@ -44,3 +45,4 @@
 /Users/michaellight/Documents/GitHub/nba_foul-analysis/06_model-validation/binomial_varying-slopes_mo_2.qmd="48D13C75"
 /Users/michaellight/Documents/GitHub/nba_foul-analysis/06_model-validation/neg-binomial_varying-slopes_mo.qmd="D73C3BFA"
 /Users/michaellight/Documents/GitHub/nba_foul-analysis/07_model-analysis/analysis_foul_binomial-model_varying-slopes-mo_7.qmd="511DB6F8"
+/Users/michaellight/Documents/GitHub/nba_foul-analysis/renv/.gitignore="7798A324"

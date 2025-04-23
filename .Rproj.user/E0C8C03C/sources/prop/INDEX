@@ -11,6 +11,7 @@
 ~%2FDocuments%2FGitHub%2Fmilestone_2%2Fnotebooks%2Fneg-binomial_modeling%2Ffoul-modeling-workflow_varying-effects_team.qmd="D0B60F69"
 ~%2FDocuments%2FGitHub%2Fmilestone_2%2Freporting%2Freport.qmd="3964C3D9"
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F.Rhistory="EAD54FFC"
+~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F.gitignore="B5B87362"
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F00_R%2Fsimulate_shots.R="12B91107"
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F00_R%2Fsimulate_shots_2.R="3752345F"
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F00_R%2Fsimulate_shots_3.R="14108DF7"
@@ -51,4 +52,5 @@
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F06_model-validation%2Fbinomial_varying-slopes_mo_2.qmd="04EFA465"
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F06_model-validation%2Fneg-binomial_varying-slopes_mo.qmd="EB49AAB1"
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2F07_model-analysis%2Fanalysis_foul_binomial-model_varying-slopes-mo_7.qmd="A0B4F011"
+~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2Frenv%2F.gitignore="8BE0C591"
 ~%2FDocuments%2FGitHub%2Fnba_foul-analysis%2Frenv.lock="57FEFFCF"
