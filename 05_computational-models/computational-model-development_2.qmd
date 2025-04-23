@@ -10,7 +10,7 @@ First we generate 1,000 synthetic observations using our simulate_l2m function
 ```{r}
 seed <- 123
 
-synthetic_data <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 5, seed = seed)
+synthetic_data <- simulate_shots(n_observations = 100, n_defenders = 50, n_teams = 5, seed = seed)
 ```
 
 We'll define our model using brms syntax:
@@ -18,19 +18,17 @@ We'll define our model using brms syntax:
 ```{r}
 # Define the model formula
 foul_binomial_formula_varying_slopes_mo <- bf(
-  shots_defended_made | trials(shots_defended_total) ~ 
+  shots_made | trials(shots_taken) ~ 
     1 + mo(defender_foul_count) +
     (1 + mo(defender_foul_count) | shot_movement) +
-    (1 + mo(defender_foul_count) | shot_zone) +
-    (1 + mo(defender_foul_count) | defender_position) +
-    (1 + mo(defender_foul_count) | primary_defender) +
-    (1 + mo(defender_foul_count) | defensive_team) +
-    (1 | offensive_team) 
+    (1 + mo(defender_foul_count) | shot_distance_category) +
+    (1 + mo(defender_foul_count) | position) +
+    (1 + mo(defender_foul_count) | defender_id) +
+    (1 + mo(defender_foul_count) | defensive_team_id) +
+    (1 | offensive_team_id) 
 )
 
 # default brms priors
-default_priors <- default_prior(foul_binomial_formula_varying_slopes_mo)
-
 foul_priors_1 <- c(
   prior(normal(0, 0.5), class = "b"),  # Fixed effects
   prior(normal(0, 0.5), class = "sd"),  # Random effect standard deviations
@@ -252,46 +250,22 @@ ggplot(pred_ranges, aes(x = model, y = mean_pred)) +
 ```
 
 ```{r}
-default_priors <- default_prior(foul_binomial_model)
+options(mc.cores = parallel::detectCores())
 
-# Fit the model
-foul_binomial_model_default <- brm(
-  formula = foul_binomial_formula,
-  data = synthetic_df,
-  family = binomial(link = "logit"),
-  chains = 4,
-  cores = 4,
-  iter = 2000,
-  warmup = 1000,
-  seed = 42,
-  control = list(adapt_delta = 0.95),
-  backend = "cmdstanr"
-)
+# Enabling parallel processing via future
+library(future)
+plan(multisession)
 
-default_priors <- default_prior(foul_binomial_model_default)
-
-# Check model summary
-summary(foul_binomial_model_default)
-
-# Check model diagnostics
-plot(foul_binomial_model_default)
-
-# Posterior predictive checks
-pp_check(foul_binomial_model, type = "dens_overlay", ndraws = 100)
-
-```
-
-```{r}
-library(SBC)
+options(SBC.min_chunk_size = 5)
 
 generator <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes_mo, family = binomial(link = "logit"), data = synthetic_df, prior = foul_priors_3, backend = "cmdstanr", 
                                 thin = 50, warmup = 10000, refresh = 2000,
-                                out_stan_file = file.path("05-1_models/brms_generator_varying_slopes_mo.stan")
+                                out_stan_file = file.path("05-1_models/brms_generator_varying_slopes_mo_2.stan")
                                 )
 
 set.seed(seed)
 
-datasets <- generate_datasets(generator, 1000)
+datasets <- generate_datasets(generator, 100)
 
 prior_sd <- calculate_prior_sd(datasets)
 
@@ -299,9 +273,9 @@ backend <- SBC_backend_brms_from_generator(generator, chains = 1, thin = 1,
                             warmup = 500, iter = 1500,               
                             inits = 0.1)
 
-results_1000 <- compute_SBC(datasets, backend,
+results_100 <- compute_SBC(datasets, backend,
                     cache_mode = "results", 
-                    cache_location = "05-2_sbc-results/results_vs-mo_1000")
+                    cache_location = "results_vs-mo_100")
 
 plot_rank_hist(results_1000)
 

@@ -1,0 +1,629 @@
+```{r}
+library(tidyverse)
+library(brms)
+library(SBC)
+library(tidybayes)
+library(loo)
+source(here::here("00_R", "simulate_shots_3.R"))
+source(here::here("00_R", "analyze_players.R"))
+
+```
+
+This creates a simulated dataset with 1,296 total observations.
+
+```{r}
+small_sim_factor <- simulate_shots(n_observations = 150, n_defenders = 50, n_teams = 5, foul_count_transform = "ordered")
+
+big_sim_factor <- simulate_shots(n_observations = 2000, n_defenders = 50, n_teams = 5, foul_count_transform = "ordered")
+
+small_sim_unsummarized <- simulate_shots(n_observations = 150, n_defenders = 50, n_teams = 5, summarize_data = "FALSE")
+
+big_sim_unsummarized <- simulate_shots(n_observations = 2000, n_defenders = 50, n_teams = 5,  foul_count_transform = "ordered", summarize_data = "FALSE")
+
+
+```
+
+
+```{r}
+
+options(mc.cores = parallel::detectCores())
+
+# Enabling parallel processing via future
+library(future)
+plan(multisession)
+
+options(SBC.min_chunk_size = 5)
+
+foul_binomial_formula_varying_slopes_mo <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + mo(defender_foul_count) +
+    (1 + mo(defender_foul_count) | shot_movement) +
+    (1 + mo(defender_foul_count) | shot_distance_category) +
+    (1 + mo(defender_foul_count) | position) +
+    (1 + mo(defender_foul_count) | defender_id) +
+    (1 + mo(defender_foul_count) | defensive_team_id) +
+    (1 | offensive_team_id) 
+)
+
+prior_custom_vs_mo <- c(
+  prior(normal(0, 1), class = "Intercept"),  # Fixed effects, weakly regularizing
+  prior(normal(0.2, 0.5), class = "b", coef = "modefender_foul_count"), # Likely positive effect, likely small
+  prior(exponential(1), class = "sd"),
+  prior(dirichlet(c(1, 1, 1, 1.5, 1.5)), class = "simo", coef = "modefender_foul_count1"),
+  prior(lkj(2), class = "cor")
+)
+
+generator_foul_binomial_formula_vs_mo_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes_mo, family = binomial(link = "logit"), data = small_sim_factor, prior = prior_custom_vs_mo, backend = "cmdstanr", 
+                                thin = 50, warmup = 10000, refresh = 2000,
+                                out_stan_file = file.path("brms-generator_binomial_vs-mo_custom-priors.stan")
+                                )
+```
+
+```{r}
+set.seed(42)
+
+datasets_100 <- generate_datasets(generator_foul_binomial_formula_vs_mo_custom_prior, 500)
+
+prior_sd_100 <- calculate_prior_sd(datasets_100)
+
+datasets_500 <- generate_datasets(generator_foul_binomial_formula_vs_mo_custom_prior, 500)
+
+prior_sd_500 <- calculate_prior_sd(datasets_500)
+
+datasets_1000 <- generate_datasets(generator_foul_binomial_formula_vs_mo_custom_prior, 1000)
+
+prior_sd_1000 <- calculate_prior_sd(datasets_1000)
+
+backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vs_mo_custom_prior, chains = 1, thin = 1,
+                            warmup = 500, iter = 1500,               
+                            inits = 0.1)
+
+results_100_vs_mo <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("05-2_sbc-results/results_foul_binomial_formula_vs-mo_custom_prior_2"))
+
+results_500_vs_mo <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vs-mo_custom_prior_500"))
+
+results_1000_vs_mo <- compute_SBC(datasets_1000, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vs-mo_custom_prior_1000"))
+```
+
+
+```{r}
+all_terms <- results_1000_vs_mo$stats |> select(variable) |> distinct()
+
+sigmas <- results_1000_vs_mo$stats |> filter(str_detect(variable, "sd")) |> select(variable) |> distinct() |> pull()
+
+cors <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("cor", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+rs <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("r_", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+simos <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("simo", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+defenders <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("defender_id", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+thirty_three <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("33", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+teams <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("defensive_team_id", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+prior_names <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("prior", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+# Main rank histogram plot
+rank_hist_plot <- plot_rank_hist(results_1000_vs_mo)
+
+# Generate all ECDF plots
+main_param_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = c("b_Intercept", "bsp_modefender_foul_count", "Intercept", "lprior", "lp__")) +
+  labs(title = "Primary Model Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample")
+
+sigma_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = sigmas) +
+  labs(title = "Standard Deviations for Model Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample")
+
+cor_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = cors) +
+  labs(title = "Parameter Correlations",
+       subtitle = "Theoretical CDF shows good coverage for observed sample, mild underconfidence for Cor_1[1,1]")
+
+cors_rank_hist_plot <- plot_rank_hist(results_1000_vs_mo, variables = cors)
+
+rs_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = rs) +
+  labs(title = "Random Effects Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample")
+
+simos_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = simos) +
+  labs(title = "Monotonic Simplex Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample at all five levels")
+
+defenders_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = defenders) +
+  labs(title = "Individual Defender Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample for all defenders, with mild under-estimation for defender 33")
+
+thirty_three_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = thirty_three) +
+  labs(title = "Individual Defender Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample for all defenders, with mild under-estimation for defender 33")
+
+defenders_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = defenders) +
+  labs(title = "Individual Defender Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample for all defenders, with mild under-estimation for defender 33")
+
+teams_ecdf_plot <- plot_ecdf_diff(results_1000_vs_mo, variables = teams) +
+  labs(title = "Individual Defender Parameters",
+       subtitle = "Theoretical CDF shows good coverage for observed sample for all defenders, with mild under-estimation for team 5")
+
+# Save all plots to the 05-3_ecdf-plots folder
+ggsave(filename = "05-3_ecdf-plots/rank_hist_plot.png", plot = rank_hist_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/main_param_ecdf_plot.png", plot = main_param_ecdf_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/sigma_ecdf_plot.png", plot = sigma_ecdf_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/cor_ecdf_plot.png", plot = cor_ecdf_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/cors_rank_hist_plot.png", plot = cors_rank_hist_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/rs_ecdf_plot.png", plot = rs_ecdf_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/simos_ecdf_plot.png", plot = simos_ecdf_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/defenders_ecdf_plot.png", plot = defenders_ecdf_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/teams_ecdf_plot.png", plot = teams_ecdf_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/33_plot.png", plot = thirty_three_ecdf_plot, width = 10, height = 8, dpi = 300)
+
+```
+
+We can also look at contractions vs z-scores
+
+```{r}
+
+results_1000_vs_mo_test <- results_1000_vs_mo$stats |> 
+  mutate(contraction = (sd / prior_sd_1000) ** 2) 
+
+results_1000_vs_mo_test |> 
+  filter(variable %in% sigmas) |> 
+  ggplot(aes(x = contraction, y = z_score)) +
+  geom_point(alpha = .8) +
+  facet_wrap(vars(variable))
+```
+
+```{r}
+# Function to analyze multiple players
+analyze_players <- function(player_ids) {
+  # Get comprehensive player info (including all skills and effects)
+  player_info <- small_sim_unsummarized |>
+    filter(defender_id %in% player_ids) |>
+    group_by(defender_id) |>
+    summarise(
+      defender_name = first(defender_name),
+      position = first(position),
+      team_id = first(team_id),
+      team_name = first(team_name),
+      defensive_skill = first(defensive_skill),
+      player_defensive_effect = first(player_defensive_effect),
+      position_foul_effect = first(position_foul_effect),
+      defensive_rating = first(defensive_rating),
+      offensive_rating = first(offensive_rating),
+      avg_foul_count = mean(defender_foul_count),
+      .groups = "drop"
+    )
+  
+  # Distance analysis for all players
+  distance_analysis <- small_sim_unsummarized |>
+    filter(defender_id %in% player_ids) |>
+    group_by(defender_id, shot_distance_category) |>
+    summarise(
+      shots_faced = n(),
+      shots_made = sum(shot_made),
+      shots_made_pct = mean(shot_made),
+      avg_foul_count = mean(defender_foul_count),
+      .groups = "drop"
+    ) |>
+    # Join with player info
+    left_join(player_info, by = "defender_id") |>
+    arrange(defender_id, shot_distance_category)
+  
+  # Foul count analysis for all players
+  foul_analysis <- small_sim_unsummarized |>
+    filter(defender_id %in% player_ids) |>
+    group_by(defender_id, defender_foul_count) |>
+    summarise(
+      shots_faced = n(),
+      shots_made = sum(shot_made),
+      shots_made_pct = mean(shot_made),
+      .groups = "drop"
+    ) |>
+    # Join with player info
+    left_join(player_info, by = "defender_id") |>
+    arrange(defender_id, defender_foul_count)
+  
+  # Combined distance and foul count analysis
+  combined_analysis <- small_sim_unsummarized |>
+    filter(defender_id %in% player_ids) |>
+    group_by(defender_id, shot_distance_category, defender_foul_count) |>
+    summarise(
+      shots_faced = n(),
+      shots_made = sum(shot_made),
+      shots_made_pct = mean(shot_made),
+      .groups = "drop"
+    ) |>
+    # Join with player info
+    left_join(player_info, by = "defender_id") |>
+    arrange(defender_id, shot_distance_category, defender_foul_count)
+  
+  # Create distance comparison plot with detailed player info in title
+  distance_plot <- ggplot(distance_analysis, 
+                         aes(x = shot_distance_category, 
+                             y = shots_made_pct, 
+                             fill = paste0(defender_id, " (", position, ", ", team_name, ")"))) +
+    geom_col(position = position_dodge(width = 0.8), alpha = 0.7) +
+    geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", 
+                                shots_made, "/", shots_faced, ")")),
+              position = position_dodge(width = 0.8),
+              vjust = -1.5, size = 3) +
+    labs(
+      title = "Defensive Performance by Shot Distance",
+      subtitle = "Percentage of shots made when defended",
+      x = "Shot Distance Category",
+      y = "Shot Success Rate",
+      fill = "Player (Position, Team)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Create foul count comparison plot with detailed player info in facets
+  foul_plot <- ggplot(foul_analysis, 
+                     aes(x = defender_foul_count, 
+                         y = shots_made_pct, 
+                         color = paste0(defender_id, " (", position, ")"))) +
+    geom_point(size = 3) +
+    geom_line() +
+    geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%\n(", 
+                                shots_made, "/", shots_faced, ")")),
+              vjust = -1, size = 3) +
+    ylim(0,1) +
+    labs(
+      title = "Defensive Performance by Foul Count",
+      subtitle = "How foul count affects shot success rate",
+      x = "Defender Foul Count",
+      y = "Shot Success Rate",
+      color = "Player (Position)"
+    ) +
+    facet_wrap(vars(paste0(
+      defender_id, " (", position, ", ", team_name, ")",
+      "\nDS: ", round(defensive_skill, 2), 
+      ", DE: ", round(player_defensive_effect, 2),
+      "\nFoul Effect: ", round(position_foul_effect, 2),
+      ", Team Def: ", round(defensive_rating, 2)
+    )), scales = "free_y") +
+    theme_minimal()
+  
+  # Create a combined distance and foul count plot
+  combined_plot <- ggplot(combined_analysis, 
+                         aes(x = shot_distance_category, 
+                             y = shots_made_pct, 
+                             fill = as.factor(defender_foul_count))) +
+    geom_col(position = position_dodge(width = 0.8), alpha = 0.8) +
+    geom_text(aes(label = paste0(round(shots_made_pct * 100, 1), "%")),
+              position = position_dodge(width = 0.8),
+              vjust = -0.5, size = 3) +
+    facet_wrap(vars(paste0(
+      defender_id, " (", position, ", ", team_name, ")",
+      "\nDS: ", round(defensive_skill, 2), 
+      ", DE: ", round(player_defensive_effect, 2)
+    ))) +
+    labs(
+      title = "Defensive Performance by Shot Distance and Foul Count",
+      subtitle = "Percentage of shots made when defended (grouped by foul count)",
+      x = "Shot Distance Category",
+      y = "Shot Success Rate",
+      fill = "Foul Count"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Create an alternative combined plot with distance on x-axis and lines for foul counts
+  combined_line_plot <- ggplot(combined_analysis, 
+                              aes(x = shot_distance_category, 
+                                  y = shots_made_pct, 
+                                  color = as.factor(defender_foul_count),
+                                  group = defender_foul_count)) +
+    geom_line(size = 1) +
+    geom_point(size = 3) +
+    geom_text(aes(label = paste0("(", shots_faced, ")")),
+              vjust = -0.8, size = 3) +
+    facet_wrap(vars(paste0(
+      defender_id, " (", position, ", ", team_name, ")",
+      "\nDS: ", round(defensive_skill, 2), 
+      ", DE: ", round(player_defensive_effect, 2)
+    ))) +
+    labs(
+      title = "Defensive Performance by Shot Distance and Foul Count",
+      subtitle = "How shot distance and foul count interact (numbers show sample size)",
+      x = "Shot Distance Category",
+      y = "Shot Success Rate",
+      color = "Foul Count"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Create a summary stats table for the player
+  player_summary <- player_info |>
+    select(
+      defender_id, 
+      defender_name,
+      position, 
+      team_name, 
+      defensive_skill, 
+      player_defensive_effect, 
+      position_foul_effect,
+      defensive_rating,
+      offensive_rating,
+      avg_foul_count
+    )
+  
+  # Return all data and plots
+  return(list(
+    player_info = player_info,
+    player_summary = player_summary,
+    distance_data = distance_analysis,
+    foul_data = foul_analysis,
+    combined_data = combined_analysis,
+    distance_plot = distance_plot,
+    foul_plot = foul_plot,
+    combined_plot = combined_plot,
+    combined_line_plot = combined_line_plot
+  ))
+}
+
+# Player 33 is a shooting guard, middle of the road defender (.73 skill in a sample where 2.5 is elite and -2.5 is worst-in-league) on a slightly below average defensive team who seems to have just happened to face teams who shot really well from 10-23 feet
+
+player_analysis <- analyze_players(c(33, 45, 21))
+
+print(player_analysis$player_summary)
+print(player_analysis$distance_data)
+print(player_analysis$foul_data)
+print(player_analysis$combined_data)
+
+ggsave(filename = "05-3_ecdf-plots/player_33_plot.png", plot = player_analysis$foul_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/player_33_distance_plot.png", plot = player_analysis$distance_plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/player_33_comb_plot.png", plot = comb_33_plot, width = 10, height = 8, dpi = 300)
+
+ggsave(filename = "05-3_ecdf-plots/player_33_combined_bar_plot.png", plot = player_analysis$combined_plot, width = 12, height = 8, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/player_33_combined_line_plot.png", plot = player_analysis$combined_line_plot, width = 12, height = 8, dpi = 300)
+
+player_analysis$combined_plot
+player_analysis$combined_line_plot
+
+```
+
+```{r}
+foul_binomial_model_vs_mo_sim <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo,
+  data = small_sim_factor,
+  family = binomial(link = "logit"),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_binomial_model_vs_mo_sim.rds")
+)
+```
+
+```{r}
+summary(foul_binomial_model_vs_mo_sim)
+```
+
+```{r}
+foul_binomial_model_vs_mo_sim_big <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo,
+  data = big_sim_factor,
+  family = binomial(link = "logit"),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = ("foul_binomial_model_vs_mo_sim_big_2.rds")
+)
+```
+
+```{r}
+summary(foul_binomial_model_vs_mo_sim_big)
+
+```
+
+```{r}
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(bayesplot)
+library(patchwork)
+library(modelr)
+
+# Load the model if it hasn't been loaded yet
+# If already loaded in environment, you can skip this
+if(!exists("foul_binomial_model_vs_mo_sim_big")) {
+  foul_binomial_model_vs_mo_sim_big <- readRDS("foul_binomial_model_vs_mo_sim_big_2.rds")
+}
+
+# Load the simulated data
+if(!exists("big_sim_unsummarized")) {
+  source(here::here("00_R", "simulate_shots_3.R"))
+  big_sim_unsummarized <- simulate_shots(
+    n_observations = 2000, 
+    n_defenders = 50, 
+    n_teams = 5, 
+    foul_count_transform = "ordered", 
+    summarize_data = "FALSE"
+  )
+}
+
+posterior_draws <- foul_binomial_model_vs_mo_sim_big |>
+  gather_draws(b_Intercept, bsp_modefender_foul_count) |>
+  median_qi(.width = c(0.50, 0.80, 0.95))
+
+defender_effects <- foul_binomial_model_vs_mo_sim_big |>
+  spread_draws(r_defender_id[defender_id,term]) |>
+  filter(term == "Intercept") |>
+  median_qi() |>
+  select(defender_id, r_defender_id, .lower, .upper)
+
+# Extract the monotonic effect coefficients
+monotonic_effects <- foul_binomial_model_vs_mo_sim_big |>
+  gather_draws(simo_modefender_foul_count1[1], simo_modefender_foul_count1[2], simo_modefender_foul_count1[3], simo_modefender_foul_count1[4], simo_modefender_foul_count1[5]) |>
+  median_qi() 
+
+# Get true values from simulated data
+# First, summarize the true relationship between foul count and shot probability
+true_foul_effect <- big_sim_unsummarized |>
+  mutate(foul_count_numeric = as.numeric(as.character(defender_foul_count))) |>
+  group_by(foul_count_numeric) |>
+  summarize(
+    shots_taken = n(),
+    shots_made = sum(shot_made),
+    true_prob = mean(shot_made),
+    true_logit = log(true_prob / (1 - true_prob))
+  )
+
+# Extract values for the true intercept (global mean log-odds of making a shot)
+# and the true effect of fouls (average change in log-odds per foul)
+true_intercept <- log(mean(big_sim_unsummarized$shot_made) / (1 - mean(big_sim_unsummarized$shot_made)))
+
+# Calculated true monotonic effect from the simulation data
+# First-differencing to get step sizes in log-odds space
+true_monotonic_effect <- true_foul_effect |>
+  mutate(
+    diff_logit = c(NA, diff(true_logit)),
+    cum_effect = cumsum(replace_na(diff_logit, 0))
+  )
+
+# Calculate true effect size (overall effect of going from 0 to 5 fouls)
+true_foul_effect_size <- true_foul_effect$true_logit[6] - true_foul_effect$true_logit[1]
+
+# Compare estimated vs true defender effects
+true_defender_effects <- big_sim_unsummarized |>
+  group_by(defender_id) |>
+  summarize(
+    true_defender_effect = first(player_defensive_effect),
+    true_defensive_skill = first(defensive_skill),
+    shots_taken = n(),
+    shots_made = sum(shot_made),
+    true_prob = mean(shot_made)
+  )
+
+# Join estimated defender effects with true values
+defender_comparison <- defender_effects |>
+  mutate(defender_id = as.numeric(as.character(defender_id))) |>
+  left_join(true_defender_effects, by = "defender_id") |>
+  # Calculate correlation
+  mutate(within_ci = true_defender_effect >= .lower & true_defender_effect <= .upper)
+
+
+# dataset with predicted probabilities for each foul count level
+newdata <- data.frame(
+  defender_foul_count = factor(0:5, ordered = TRUE),
+  # Use average values for other variables or set them to reference levels
+  shot_movement = "stationary",
+  shot_distance_category = "10_through_23_ft",
+  position = "SG",
+  defender_id = "1",  # Reference defender
+  defensive_team_id = "1",  # Reference team
+  offensive_team_id = "2",
+  shots_taken = 100  # Dummy value
+)
+
+# Get posterior predictions
+pred_draws <- foul_binomial_model_vs_mo_sim_big |>
+  add_predicted_draws(newdata = newdata, re_formula = NULL) |>
+  mutate(
+    foul_count = as.numeric(as.character(defender_foul_count)),
+    pred_prob = .prediction / 100  # Convert to probability
+  )
+
+# Calculate mean predicted probability for each foul count
+pred_summary <- pred_draws |>
+  group_by(foul_count) |>
+  summarize(
+    mean_pred_prob = mean(pred_prob),
+    lower_95 = quantile(pred_prob, 0.025),
+    upper_95 = quantile(pred_prob, 0.975)
+  )
+
+# Plot of foul count effect
+# The simulation seems to be producing sensible make/miss distributions, but is producing way more 5 foul scenarios, and way fewer zero scenarios, than would be expected
+
+p1 <- ggplot() +
+  # Add true values from simulation
+  geom_point(data = true_foul_effect, aes(x = foul_count_numeric, y = true_prob),
+             size = 3, color = "darkred") +
+  # Add model predictions with confidence intervals
+  geom_line(data = pred_summary, aes(x = foul_count, y = mean_pred_prob),
+            size = 1, color = "steelblue") +
+  geom_ribbon(data = pred_summary, 
+              aes(x = foul_count, ymin = lower_95, ymax = upper_95),
+              alpha = 0.2, fill = "steelblue") +
+  geom_text(data = true_foul_effect, 
+            aes(x = foul_count_numeric, y = true_prob, 
+                label = sprintf("n=%d", shots_taken)),
+            vjust = -0.5, hjust = 0.5, size = 3) +
+  labs(title = "Foul Count Effect on Shot Success Rate",
+       subtitle = "Model Estimates (blue) vs. True Values (red)",
+       x = "Number of Fouls",
+       y = "Probability of Shot Success") +
+  theme_minimal()
+
+# MCMC trace and density plots for key parameters
+p3 <- mcmc_trace(foul_binomial_model_vs_mo_sim_big, pars = c("b_Intercept", "bsp_modefender_foul_count")) +
+  labs(title = "MCMC Trace for Main Parameters")
+
+p5 <- ggplot() +
+  geom_point(data = monotonic_effects, aes(x = as.numeric(str_extract(.variable, "\\d")), y = .value), 
+             size = 3, color = "steelblue") +
+  geom_errorbar(data = monotonic_effects, 
+                aes(x = as.numeric(str_extract(.variable, "\\d")), ymin = .lower, ymax = .upper), 
+                width = 0.2, color = "steelblue") +
+  geom_line(data = monotonic_effects, 
+            aes(x = as.numeric(str_extract(.variable, "\\d")), y = .value, group = 1),
+            color = "steelblue") +
+  # Add true monotonic effect values
+  geom_line(data = true_monotonic_effect[-1,], aes(x = foul_count_numeric, y = cum_effect/max(cum_effect)), 
+            color = "darkred", linetype = "dashed", size = 1) +
+  geom_point(data = true_monotonic_effect[-1,], aes(x = foul_count_numeric, y = cum_effect/max(cum_effect)), 
+             color = "darkred", size = 3) +
+  # Add legend and labels
+  labs(title = "Monotonic Effect of Foul Count",
+       subtitle = "Model estimates (blue) vs True values (red dashed)",
+       x = "Foul Level",
+       y = "Cumulative Effect (normalized)") +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+# simplex parameters
+p6 <- mcmc_areas(foul_binomial_model_vs_mo_sim_big, 
+                regex_pars = "simo_modefender_foul_count1") +
+  labs(title = "Posterior Distributions for Monotonic Simplex Parameters",
+       subtitle = "These control the relative steps between foul levels")
+
+# Create a posterior distribution plot for primary parameters with true values
+p7 <- mcmc_areas(foul_binomial_model_vs_mo_sim_big, pars = c("b_Intercept")) +
+  # vertical lines for true parameter values
+  geom_vline(xintercept = true_intercept, linetype = "dashed", color = "darkred", size = 1) +
+  annotate("text", x = true_intercept, y = 0.8, label = "True Intercept",
+           color = "darkred", angle = 0, vjust = -0.5, hjust = 1.1) +
+  labs(title = "Posterior Distributions with True Parameter Values",
+       subtitle = "Red dashed lines show true parameter values from simulation")
+
+ppc_plot <- pp_check(foul_binomial_model_vs_mo_sim_big, ndraws = 50) +
+  labs(title = "Posterior Predictive Check",
+       subtitle = "How well the model predicts the observed data")
+
+ggsave(filename = "05-3_ecdf-plots/posterior_with_true_values.png", plot = p7, width = 10, height = 6, dpi = 300)
+ggsave(filename = "05-3_ecdf-plots/pp-check_sim.png", plot = ppc_plot, width = 10, height = 6, dpi = 300)
+
+(p1) / (p7 | p5)
+
+(p3) / (p6 | ppc_plot)
+
+```

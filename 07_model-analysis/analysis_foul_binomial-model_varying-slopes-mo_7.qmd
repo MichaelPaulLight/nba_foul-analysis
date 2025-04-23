@@ -1,0 +1,160 @@
+```{r}
+library(tidyverse)
+library(brms)
+library(nanoparquet)
+library(here)
+library(tidybayes)
+library(nanoparquet)
+library(patchwork)
+library(bayesplot)
+```
+
+```{r}
+model <- brm(
+  formula = foul_binomial_formula_varying_slopes_mo_7,
+  data = data_sample_full_agg,
+  family = binomial(link = "logit"),
+  prior = prior_custom_vs_mo,
+  chains = 4,
+  cores = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 42,
+  control = list(adapt_delta = 0.95),
+  backend = "cmdstanr",
+  file = (here::here("06_model-validation", "model.rds"))
+)
+
+data <- read_parquet(here("02_data", "02-3_data_modeling", "sample_359266_factor.parquet"))
+
+data <- data |> 
+  mutate(defender_foul_count = factor(defender_foul_count, 
+                                   levels = 0:5,
+                                   ordered = TRUE))
+
+data <- data |> 
+  group_by(offensive_team, defensive_team, primary_defender, shot_movement, shot_type_basic, shot_zone, defender_position, defender_foul_count) |> 
+  summarize(shots_defended_made = sum(shots_defended_made),
+         shots_defended_total = sum(shots_defended_total))
+```
+
+```{r}
+mcmc_plot(model)  
+```
+
+```{r}
+plot(model)
+```
+
+```{r}
+marginal_effects(model)
+```
+
+```{r}
+neff_plot <- neff_ratio(model) |> mcmc_neff() + labs(title = "Neff Values for Binomial Model",
+                                                     subtitle = "Above 0.1 is good"
+                                                     )
+
+ggsave(here::here("07_model-analysis", "07-01_figures", "neff_plot.png"), neff_plot, width = 10, height = 8)
+```
+
+```{r}
+pp_check(model)
+
+mcmc_areas
+```
+
+
+```{r}
+model |> 
+  gather_draws(r_shot_zone[shot_zone,]) |> 
+  ggplot(aes(y = shot_zone, x = .value)) + 
+  stat_halfeye()
+
+model |> 
+   gather_draws(r_shot_movement[shot_movement,]) |> 
+   ggplot(aes(y = shot_movement, x = .value)) + 
+   stat_halfeye()
+
+model |> 
+  gather_draws(r_defender_position[defender_position,]) |> 
+  ggplot(aes(y = defender_position, x = .value)) + 
+  stat_halfeye()
+
+model |>
+  gather_draws(r_shot_zone[shot_zone,]) |> 
+  ggplot(aes(y = shot_zone, x = .value)) + 
+  stat_halfeye()
+
+model |>
+  gather_draws(r_defensive_team[defensive_team,]) |> 
+  ggplot(aes(y = defensive_team, x = .value)) + 
+  stat_halfeye()
+
+# Get median values for each team and term combination
+mo_def_foul_order_data <- model |>
+  gather_draws(r_defensive_team[defensive_team,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  group_by(defensive_team, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order teams based on medians
+mo_def_foul_plot <- model |>
+  gather_draws(r_defensive_team[defensive_team,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  mutate(defensive_team = factor(defensive_team, 
+                               levels = mo_def_foul_order_data |> 
+                                 filter(term == term[1]) |> 
+                                 arrange(median_value) |> 
+                                 pull(defensive_team))) |>
+  ggplot(aes(y = defensive_team, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Effect of fouls on\nopponent shotmaking percentage",
+       y = "Defensive Team")
+  
+
+# Get median values for each team and term combination
+team_order_data <- model |>
+  gather_draws(r_defensive_team[defensive_team,term]) |> 
+  filter(term == "Intercept") |> 
+  group_by(defensive_team, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order teams based on medians
+team_plot <- model |>
+  gather_draws(r_defensive_team[defensive_team,term]) |> 
+  filter(term == "Intercept") |> 
+  mutate(defensive_team = factor(defensive_team, 
+                               levels = team_order_data |> 
+                                 filter(term == term[1]) |> 
+                                 arrange(median_value) |> 
+                                 pull(defensive_team))) |>
+  ggplot(aes(y = defensive_team, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Baseline team effect on\nopponent shotmaking percentage",
+       y = "Defensive Team")
+
+bisect_plot <- team_plot | mo_def_foul_plot
+
+# Get median values for each team and term combination
+team_order_comb_data <- model |>
+  gather_draws(r_defensive_team[defensive_team,]) |> 
+  group_by(defensive_team) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order teams based on medians
+team_comb_plot <- model |>
+  gather_draws(r_defensive_team[defensive_team,]) |> 
+  mutate(defensive_team = factor(defensive_team, 
+                               levels = team_order_comb_data |> 
+                                 arrange(median_value) |> 
+                                 pull(defensive_team))) |>
+  ggplot(aes(y = defensive_team, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Total team effect on\nopponent shotmaking percentage",
+       y = "Defensive Team")
+
+ggsave(here("07_model-analysis", "bisect_plot.png"), bisect_plot, width = 10, height = 8)
+
+ggsave(here("07_model-analysis", "team_comb_plot.png"), team_comb_plot, width = 10, height = 8)
+```

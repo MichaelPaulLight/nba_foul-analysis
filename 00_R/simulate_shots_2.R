@@ -209,7 +209,7 @@ simulate_shots <- function(
   # Summarize the data if requested
   if (summarize_data) {
     final_dataset <- final_dataset |>
-      group_by(defensive_team_id, defender_id, position, defender_foul_count, 
+      group_by(defensive_team_id, offensive_team_id, defender_id, position, defender_foul_count, 
                shot_distance_category, shot_type_basic, shot_movement) |> 
       summarize(
         shots_taken = n(),

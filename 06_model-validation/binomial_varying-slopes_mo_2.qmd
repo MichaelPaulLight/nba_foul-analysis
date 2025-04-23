@@ -964,6 +964,7 @@ fouls_player_effects_by_team_3 |>
   scale_color_brewer(palette = "Set1") +
   facet_wrap(vars(fouls), scales = "free_y")
 ```
+
 ```{r}
 player_effects_by_zone <- foul_binomial_model_vs_mo_5_100000 %>%
   spread_draws(b_Intercept, bsp_modefender_foul_count, r_primary_defender[primary_defender, term])

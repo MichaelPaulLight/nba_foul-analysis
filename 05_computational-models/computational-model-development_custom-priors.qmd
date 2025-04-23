@@ -4,19 +4,19 @@ library(brms)
 library(SBC)
 library(tidybayes)
 library(loo)
-source(here::here("00_R", "simulate_shots.R"))
+source(here::here("00_R", "simulate_shots_2.R"))
 ```
 
 This notebook fits three models of varying complexity to simulated datasets using brms default priors
 
 ```{r}
-small_sim <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10)
+small_sim <- simulate_shots(n_observations = 500, n_defenders = 50, n_teams = 5)
 
-small_sim_standardized <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10, foul_count_transform = "standardized")
+small_sim_standardized <- simulate_shots(n_observations = 500, n_defenders = 50, n_teams = 5, foul_count_transform = "standardized")
 
-small_sim_unsummarized <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10, summarize_data = "FALSE")
+small_sim_unsummarized <- simulate_shots(n_observations = 500, n_defenders = 50, n_teams = 10, summarize_data = "FALSE")
 
-small_sim_factor <- simulate_shots(n_observations = 1000, n_defenders = 50, n_teams = 10, foul_count_transform = "ordered")
+small_sim_factor <- simulate_shots(n_observations = 150, n_defenders = 50, n_teams = 5, foul_count_transform = "ordered")
 ```
 
 Defining a binomial model of foul effects on shotmaking, simplest to most-complex
@@ -66,6 +66,17 @@ foul_binomial_formula_varying_slopes_mo <- bf(
     (1 + mo(defender_foul_count) | defensive_team_id) +
     (1 + mo(defender_foul_count) | position) +
     (1 + defender_foul_count | defender_id)
+)
+
+foul_binomial_formula_varying_slopes_mo_2 <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + mo(defender_foul_count) +
+    (1 + mo(defender_foul_count) | shot_movement) +
+    (1 + mo(defender_foul_count) | shot_distance_category) +
+    (1 + mo(defender_foul_count) | position) +
+    (1 + mo(defender_foul_count) | defender_id) +
+    (1 + mo(defender_foul_count) | defensive_team_id) +
+    (1 | offensive_team_id) 
 )
 
 ```
@@ -680,6 +691,27 @@ results_100_vi_mo_contractions |>
 ```
 
 ```{r}
+
+options(mc.cores = parallel::detectCores())
+
+# Enabling parallel processing via future
+library(future)
+plan(multisession)
+
+options(SBC.min_chunk_size = 5)
+
+
+foul_binomial_formula_varying_slopes_mo_2 <- bf(
+  shots_made | trials(shots_taken) ~ 
+    1 + mo(defender_foul_count) +
+    (1 + mo(defender_foul_count) | shot_movement) +
+    (1 + mo(defender_foul_count) | shot_distance_category) +
+    (1 + mo(defender_foul_count) | position) +
+    (1 + mo(defender_foul_count) | defender_id) +
+    (1 + mo(defender_foul_count) | defensive_team_id) +
+    (1 | offensive_team_id) 
+)
+
 prior_custom_vs_mo <- c(
   prior(normal(0, 1), class = "Intercept"),  # Fixed effects, weakly regularizing
   prior(normal(0.2, 0.5), class = "b", coef = "modefender_foul_count"), # Likely positive effect, likely small
@@ -688,16 +720,22 @@ prior_custom_vs_mo <- c(
   prior(lkj(2), class = "cor")
 )
 
-generator_foul_binomial_formula_vs_mo_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes_mo, family = binomial(link = "logit"), data = small_sim_factor, prior = prior_custom_vs_mo, backend = "cmdstanr", 
+generator_foul_binomial_formula_vs_mo_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes_mo_2, family = binomial(link = "logit"), data = small_sim_factor, prior = prior_custom_vs_mo, backend = "cmdstanr", 
                                 thin = 50, warmup = 10000, refresh = 2000,
-                                out_stan_file = file.path("05-1_models/brms-generator_binomial_vs-mo_custom-priors.stan")
+                                out_stan_file = file.path("brms-generator_binomial_vs-mo_custom-priors.stan")
                                 )
 
 set.seed(42)
 
-datasets <- generate_datasets(generator_foul_binomial_formula_vs_mo_custom_prior, 100)
+datasets <- generate_datasets(generator_foul_binomial_formula_vs_mo_custom_prior, 500)
+
+datasets_1000 <- generate_datasets(generator_foul_binomial_formula_vs_mo_custom_prior, 1000)
+
 
 prior_sd <- calculate_prior_sd(datasets)
+
+prior_sd_1000 <- calculate_prior_sd(datasets_1000)
+
 
 backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vs_mo_custom_prior, chains = 1, thin = 1,
                             warmup = 500, iter = 1500,               
@@ -705,11 +743,51 @@ backend <- SBC_backend_brms_from_generator(generator_foul_binomial_formula_vs_mo
 
 results_100_vs_mo <- compute_SBC(datasets, backend,
                     cache_mode = "results", 
-                    cache_location = file.path("results_foul_binomial_formula_vs-mo_custom_prior"))
+                    cache_location = file.path("05-2_sbc-results/results_foul_binomial_formula_vs-mo_custom_prior_2"))
 
-plot_rank_hist(results_100_vs_mo)
+results_500_vs_mo <- compute_SBC(datasets, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vs-mo_custom_prior_500"))
 
-plot_ecdf_diff(results_100_vs_mo)
+results_1000_vs_mo <- compute_SBC(datasets_1000, backend,
+                    cache_mode = "results", 
+                    cache_location = file.path("results_foul_binomial_formula_vs-mo_custom_prior_1000"))
+
+
+plot_rank_hist(results_1000_vs_mo)
+
+plot_ecdf_diff(results_1000_vs_mo, variables = c("b_Intercept", "bsp_modefender_foul_count", "Intercept"))
+
+sigmas <- results_1000_vs_mo$stats |> filter(str_detect(variable, "sd")) |> select(variable) |> distinct() |> pull()
+
+plot_ecdf_diff(results_1000_vs_mo, variables = sigmas)
+
+cors <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("cor", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+plot_ecdf_diff(results_1000_vs_mo, variables = cors)
+
+rs <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("r_", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+plot_ecdf_diff(results_1000_vs_mo, variables = rs)
+
+simos <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("simo", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+plot_ecdf_diff(results_1000_vs_mo, variables = simos)
+
+defenders <- results_1000_vs_mo$stats |> filter(str_detect(variable, regex("defender_id", ignore_case = TRUE))) |> select(variable) |> distinct() |> pull()
+
+plot_ecdf_diff(results_1000_vs_mo, variables = defenders)
+
+plot_rank_hist(results_1000_vs_mo, variables = defenders)
+
+all_terms <- results_1000_vs_mo$stats |> select(variable) |> distinct()
+
+
+results_1000_vs_mo$stats
+
+data_for_ecdf_plots(results_1000_vs_mo)
+
+
 
 plot_ecdf(results_100_vs_mo)
 
