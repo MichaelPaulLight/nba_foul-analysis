@@ -5,3 +5,5 @@ simulate_shots.R is the workhorse for simulation, allows a user to generate synt
 simulate_shots_2.R improves the utility of simulate_shots, adding offensive_team_id and shot_movement to the returned dataframe
 
 simulate_shots_3.R improves simulate_shots further, adding more customization arguments that make it easier for users to create more general or more customizable simulations. Users can define their own positions and position effects. This is the version used to prepare report_foul-analysis.qmd
+
+simulate_l2m.R is a work in progress, but may be used for future simulation studies of last two minute report data.

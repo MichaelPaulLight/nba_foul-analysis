@@ -55,7 +55,7 @@ prior_custom_vs_mo <- c(
 
 generator_foul_binomial_formula_vs_mo_custom_prior <- SBC_generator_brms(formula = foul_binomial_formula_varying_slopes_mo, family = binomial(link = "logit"), data = small_sim_factor, prior = prior_custom_vs_mo, backend = "cmdstanr", 
                                 thin = 50, warmup = 10000, refresh = 2000,
-                                out_stan_file = file.path("brms-generator_binomial_vs-mo_custom-priors.stan")
+                                out_stan_file = file.path("05_1_models/brms-generator_binomial_vs-mo_custom-priors.stan")
                                 )
 ```
 
@@ -84,11 +84,11 @@ results_100_vs_mo <- compute_SBC(datasets, backend,
 
 results_500_vs_mo <- compute_SBC(datasets, backend,
                     cache_mode = "results", 
-                    cache_location = file.path("results_foul_binomial_formula_vs-mo_custom_prior_500"))
+                    cache_location = file.path("05-2_sbc-results/results_foul_binomial_formula_vs-mo_custom_prior_500"))
 
 results_1000_vs_mo <- compute_SBC(datasets_1000, backend,
                     cache_mode = "results", 
-                    cache_location = file.path("results_foul_binomial_formula_vs-mo_custom_prior_1000"))
+                    cache_location = file.path("05-2_sbc-results/results_foul_binomial_formula_vs-mo_custom_prior_1000"))
 ```
 
 
@@ -390,6 +390,8 @@ player_analysis$combined_plot
 player_analysis$combined_line_plot
 
 ```
+
+Fitting the validated model to simulated data
 
 ```{r}
 foul_binomial_model_vs_mo_sim <- brm(

@@ -1,2 +1,3 @@
 This folder contains any notebooks used to develop computational models of the data.
-Models saved in 05-1_models
+
+The SBC case study is built in sbc_binomial-vs-mo_7.qmd
