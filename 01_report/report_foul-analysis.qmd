@@ -32,11 +32,11 @@ At a broader level, developing robust defensive metrics from public data could h
 
 This project leverages personal fouls as a proxy for defensive ability in the NBA. Since players who accumulate 6 fouls are ejected from games, they must strategically adjust their defensive intensity based on foul count. This creates a natural experiment where we can observe how defensive behavior changes under varying foul pressure, potentially revealing defensive skill without requiring proprietary tracking data.
 
+This project developed a novel set of testable assumptions that use players' tendencies to accumulate personal fouls throughout games as a measure of their latent defensive ability. By studying the way different players and their opponents' shotmaking tendencies are affected by the accumulation of fouls, we may be able to infer defensive impact without requiring proprietary tracking data. Because players 'foul out' of games when they reach 6 fouls, we assume they strategically modulate their defensive intensity to avoid ejection while still contributing defensively. This creates a natural experiment where we can observe how defensive and offensive behavior changes under varying levels of foul pressure, both at the individual and team level. We hypothesize that better defenders demonstrate distinct patterns in how they and their teammates respond to foul accumulation compared to weaker defenders, providing a measurable signal of defensive skill that can be extracted from publicly available data.
+
 ## Purpose
 
 The purpose of this research is to estimate the causal influence of individual defender foul counts on the shotmaking probability of opposing offenses under the hypothesis that players' defensive skill is a latent trait that can be estimated using NBA play-by-play data.
-
-As a secondary purpose, this project demonstrates the utility and practical application of Simulation-Based Calibration (SBC) checks in research settings that require agent-based, generative models to study a phenomena of interest. In detailing a principled, Bayesian workflow that incorporates SBC for model development and validation, I hope to help researchers in applied fields leverage their domain expertise to build and use narratively generative models.
 
 ## Confounding Expected
 
@@ -66,7 +66,7 @@ Since foul counts differ between individual defenders, and defenders tend to pla
 
 Bayesian models have been used in a number of previous studies to model the both offensive and defensive performance. Williams et al. (2024) used a Bayesian hierarchical modeling framework to model offensive performance of teams and players based on their shooting propensities and abilities. They used discretized shot loactions for the top 100 shot-takers from the 2008/2009–2020/2021 seasons to create an expected points above average (EPAA) metric. Our project differs in our use of hierarchical modeling to infer defensive impact, rather than contributing to the existing research on offense.
 
-Franks et al. (2015) was one of the pioneering papers in using Bayesian hierarchical models to study player tracking data by modeling the relationship between a defensive assignment and the spacial-temporal shotmaking tendencies of various offensive players, which is to say how well they shoot the ball given the location, time, and defender of a shot attempt. Our project differs in that we use a Bayesian hierarchical model to infer defensive impact without using raw player tracking data, rather than modeling the relationship between a known defensive assignment and shotmaking tendencies.
+Franks et al. (2015) was one of the pioneering papers in using Bayesian hierarchical models to study player tracking data by modeling the relationship between a defensive assignment and the spatiotemporal shotmaking tendencies of various offensive players, which is to say how well they shoot the ball given the location, time, and defender of a shot attempt. Our project differs in that we use a Bayesian hierarchical model to infer defensive impact without using raw player tracking data, rather than modeling the relationship between a known defensive assignment and shotmaking tendencies.
 
 Finally, Chu and Swartz (2020) use Bayesian methods to model the time-to-event of a foul as a gamma distributed function of a player, their accumulated number of fouls, and their position. Their goal was to develop a decision-making framework for coaches to use in determining when to sit players at risk of fouling out (usually when a player reaches 6 fouls) of a game. Although similar in spirit, our project doesn't model the time-to-event of a foul nor attempt to help coaches make decisions about sitting their players, but instead focuses on the effect of fouls while players are on the court.
 
@@ -242,7 +242,7 @@ The nearly maximal multilevel structure demonstrated above, in which all covaria
 
 # Prior Selection and Predictive Checks
 
-Priors were selected to encode domain expertise and to weakly regularize model expectations in others.
+Priors were selected to encode domain expertise and to weakly regularize model expectations.
 
 ```{r}
 library(brms)
@@ -308,20 +308,6 @@ We can also see good coverage for the simplex parameters unique to our monotonic
 
 ![](images/simos_ecdf_plot.png){fig-align="center"}
 
-One of the advantages of using SBC in conjunction with agent-based simulation is that outputs of the process provide can be directly interpreted according to researchers' domain expertise. For example, examining the results of SBC for player-specific parameters, which we gain by including varying effects at the player level, shows at least one player for whom our model may be struggling to characterize. These plots indicate that our model is mildly underconfident in its characterization of this player's foul effect.
-
-![](images/33_plot.png){fig-align="center"}
-
-We can take a look at this specific simulated defender to see if we can detect any weird consequences of the assumptions of our generative model.
-
-![](images/player_33_combined_bar_plot.png){fig-align="center"}
-
-![](images/player_33_comb_plot-01.png){fig-align="center"}
-
-One detail that somewhat jumps off the page is this player seems to have faced a high number of shots while playing with 5 fouls, and many of those shots seem to have been close to the basket. Given that he's a shooting guard of average defensive skill and effect (.74 and .72, with elite skill numbers being 2.5 and dismal numbers closer to -2.5), one plausible story we could tell is that the model is having a difficult time separating this player's foul effect on shot success from the effect of shot zone; are the outcomes of shots taken while this player is on the floor a product of his fouls or offenses simply taking many shots near the basket? The model isn't sure.
-
-To figure out whether there is severe model misspecification, we could always run SBC with even more data simulated from our priors, adjust our priors, or increase the number of observations in our generated, synthetic sample. But for our purposes, where we'll be fitting our model to a real sample 20-times larger, we're reasonably confident in our model's validity and can proceed.
-
 # Model Fitting and Diagnostics
 
 ## Fitting Models to Simulated Samples
@@ -330,35 +316,57 @@ When we fit our model to a simulated dataset comprised of 2,000 observations of 
 
 ![](images/posterior_with_true_values-01.png)
 
-Posterior predictive checks also look good and indicate, for simulated data, our model is doing a fine job.
+Posterior predictive checks also look good and indicate that, for simulated data, our model is well-calibrated.
 
 ![](images/pp-check_sim.png){fig-align="center"}
 
-# Conclusion?
+# Model Implications
 
-For the purpose of this project, our analysis could really end here, without ever opening our parquet file of real data. And although that might be a little unsatisfying for a reader interested in possibly learning anything about actual basketball players in actual games, it would be a sort of fun way to demonstrate just how far you can take an analysis with a bit of domain expertise and curiosity. The real data turned out to be the simulations we made along the way and all that.
+Our model shows nuanced relationships between defender foul counts and shot success probability. The global effect of increasing foul counts on shot success is slightly negative (β = -0.02) but with uncertainty spanning zero (95% CI: -0.11 to 0.08).
 
-But, okay, it would be unsatisfying. So now we begrudgingly expose our validated model to about 200,000 rows of real NBA data and voila, wait \~24 hours, and with a clean bill of health (according to model diagnostics, see here::here("07_model-analysis", "analysis_foul_binomial-model_varying-slopes-mo_7.qmd")) the modeling process is over.
+The monotonic simplex parameters demonstrate that the effect isn't uniform across foul levels, with the largest steps occurring between 4 and 5 fouls (0.49) and between 3 and 4 fouls (0.24), suggesting defenders adjust their intensity most dramatically at high foul counts.
 
-For good measure, we can take a look at what our model thinks about the effects different teams have on opponent shotmaking probability, as well as the effect of fouls on their opponents. We can see that there's a lot of overlap between teams, but the Philadelphia 76ers have among the largest effects on opponent shotmaking (teams score when they shoot on the 76ers), and that doesn't much change regardless of how many fouls their players play with: their median foul effect is pretty much centered on zero.
+![](images/report_key_findings.png){fig-align="center"}
 
-On the other hand, the Knicks (NYK) are fairly middle-of-the-pack in the lefthand graph, but when their players accumulate fouls our model seems to think opponent shotmaking percentage is likely to increase, with very little probability mass at or below zero.
+Shot zone exhibits the largest variability in baseline success rates (SD = 1.48), while shot movement types (SD = 0.32) and team effects (SD ≈ 0.05-0.08) show moderate variation. This pattern suggests that while fouls generally have a small negative effect on shotmaking probability, their impact varies considerably by context, particularly by team, position, and court location.
+
+The estimated correlations between intercepts and foul effects across groups provide additional insights into defensive dynamics. For shot movement, we observe a positive correlation (0.32), suggesting that shot types with higher baseline success rates (such as cutting and running shots) tend to be less negatively affected by defender fouls. This may indicate that high-percentage shots maintain their efficiency regardless of defensive pressure, or that defenders apply less risky physical pressure against these shot types. Defensive teams show a slight negative correlation (-0.13), indicating teams that are better at reducing shotmaking probability at baseline may experience slightly greater increases in opponent shotmaking as their players accumulate fouls, possibly because these teams rely more on physical defensive pressure. The correlation estimates for other grouping variables are close to zero.
+
+## Team Effects
+
+Looking at what our model thinks about the effects different teams have on opponent shotmaking probability, as well as the effect of fouls on their opponents, we can see that there's a lot of overlap between teams, but the Philadelphia 76ers have among the largest effects on opponent shotmaking (teams score when they shoot on the 76ers), and that doesn't much change regardless of how many fouls their players play with: their median foul effect is pretty much centered on zero.
+
+On the other hand, the Knicks (NYK) are fairly middle-of-the-pack in the left-hand graph, but when their players accumulate fouls our model seems to think opponent shotmaking percentage is likely to increase, with very little probability mass at or below zero.
 
 Intuitively this makes sense: the 76ers were one of the worst teams with the least to play for this season. They didn't have any reason to defend the ball well with defensive pressure, nor were they playing very many players with a lot of skill; for much of the season, they played young reserves in an effort to lose games and secure a high pick in the 2025 draft.
 
-The Knicks, on the other hand, played most of the year with Karl Anthony Towns at center; he's an offense-first big man known for committing a lot of fouls while using his size to make up for a lack of skill on defense. We'd expect him, and by extension the Knicks, to suffer higher degrees of shotmaking success as a result.
+The Knicks, on the other hand, played most of the year with Karl-Anthony Towns at center; he's an offense-first big man known for committing a lot of fouls while using his size to make up for a lack of skill on defense. We'd expect him, and by extension the Knicks, to suffer higher degrees of shotmaking success as a result. Further, the Knicks are known for playing fewer players for more minutes than any other team in the league, which means their players may be throttling their defensive pressure more than players on other teams in an effort to reduce their likelihood of fouling out, knowing that their coach relies on their minutes down the stretch of close games.
 
 ![](images/bisect_plot.png)
 
-Here are the combined effects for each team. This isn't necessarily showing the worst defenses up top and the best down below (although the OKC Thunder are indeed very, very good), but which teams had the greatest effect on whether their opponents shots went in.
+## Shot Movement Effects
 
-![](images/team_comb_plot.png){fig-align="center"}
+The model's estimates for shot movement effects reveal a context-dependent relationship between how players move into their shots and the likelihood of those shots being made. Baseline shotmaking probability varies considerably by movement type: shots taken off cuts and in transition (running) are associated with the highest baseline probabilities, while more self-created or contested movements like step-backs and pullups tend to have lower baseline success rates. This aligns with intuition—shots generated through off-ball movement or quick actions are often less contested and closer to the basket, whereas self-created shots are typically taken under greater defensive pressure or from less advantageous positions.
 
-# Conclusion (actually)
+When examining the effect of defender foul accumulation on shotmaking by movement type, the model suggests that the marginal impact of fouls is generally modest and heterogeneous. For high-percentage off-ball movements like cutting and running, the effect of additional defender fouls has a probability mass mostly above zero, indicating that these opportunities increase their efficiency as fouls increase (and, we assume, defensive pressure decreases). In contrast, on-ball creation movements such as driving show a relationship to foul accumulation that is slightly more positive than the relationship between foul accumulation and highly contested self-created shot movements like pullups, step backs, and floaters—consistent with the idea that defenders in foul trouble may be less aggressive or physically imposing. Overall, these results highlight that while the baseline efficiency of shot movements is largely determined by the nature of the action, the incremental effect of fouls is most pronounced for movements that typically demand more defensive intervention.
 
-In demonstrating the utility of agent-based simulation and Simulation-Based Calibration within a generative modeling workflow, I hope to have done just a little bit to convince a reader of how much can be accomplished by thinking hard about the systems we study, and that there's often more information available to us than we'd get from just popping open a csv and reading through the column names.
+![](images/movement_bisect_plot.png){fig-align="center"}
 
-The full Bayesian model fit above could absolutely be probed for interesting insights about the actual 2024-2025 season, but we now have a generalizable modeling framework to not only analyze that small slice of observations, but any play-by-play dataset we come upon.
+## Shot Zone Effects
+
+The baseline effect of shot zone on shotmaking probability follows a fairly intuitive pattern: shots taken closer to the basket (in the restricted area and paint) are more likely to be made than those taken further away (3-point shots and those taken further into the back court). The effect of fouls, however, is somewhat more surprising. Shotmaking probability increases most significantly for shots taken close to the basket, which supports the idea that there's a drop-off in defensive pressure as fouls accumulate. Defenders whose shot contesting ability is more a product of defensive pressure than defensive skill are particularly affected by foul accumulation, leading them to contest shots less aggressively near the basket.
+
+What's surprising is that the most significant effect of foul accumulation is a decrease in three-point success probability in the right-hand corner of the court. This effect is not present in the left-hand corner, nor for three-pointers taken from above the break or in the back court.
+
+One plausible explanation for the decreased three-point success probability exclusively on the right side of the court relates to defensive adjustments as fouls accumulate. As defenses accumulate fouls, offenses tend to prefer driving closer to the basket where the softened defense is likelier to surrender high-percentage shots in the paint or restricted area. In response, defenses typically compensate by "loading up" toward the anticipated drive direction. This defensive strategy applies more frequently to the "strong side" of the court—typically corresponding to the ballhandler's handedness—which would disproportionately affect the right side in a league dominated by right-handed players. Consequently, more defenders position themselves closer to the right corner when drives result in kick-out passes to three-point shooters. With increased defensive proximity, shooters in the right corner face more contested, lower-probability shots compared to those on the left side or "weak side" of the court, where more open opportunities might exist.
+
+![](images/zone_bisect_plot.png){fig-align="center"}
+
+Of course, this is just one story that may or not accurately reflect the true data generating process, and more modeling and analysis are needed to explore the complex interactions between where offenses shoot and defender foul counts to gain a better understanding of the phenomenon. Our model is a good starting point, but lacks sufficient flexibility to fully explore the interactions between foul counts and shot location.
+
+# Conclusion
+
+This paper demonstrates the relationship between defender foul counts and opponent shotmaking probability, and shows that this approach can be used to estimate the effect of foul counts on shotmaking probability for players, teams, and combinations of the two. Further, it suggests further study of the relationship between defensive skill and foul counts, and how it may be possible to estimate defensive skill by assuming a defender's shot contesting ability is a function of their defensive skill and defensive pressure, which is mediated by their foul count.
 
 # Appendices
 
@@ -368,7 +376,7 @@ The full Bayesian model fit above could absolutely be probed for interesting ins
 
 Barr DJ, Levy R, Scheepers C, Tily HJ. Random effects structure for confirmatory hypothesis testing: Keep it maximal. J Mem Lang. (2013) Apr;68(3):10.1016/j.jml.2012.11.001. doi: 10.1016/j.jml.2012.11.001.
 
-Bürkner P (2017). "brms: An R Package for Bayesian Multilevel Models Using Stan." *Journal of Statistical Software*, **80**(1), 1–28. [doi:10.18637/jss.v080.i01](https://doi.org/10.18637/jss.v080.i01).
+Bürkner P (2017) "brms: An R Package for Bayesian Multilevel Models Using Stan." *Journal of Statistical Software*, **80**(1), 1–28. [doi:10.18637/jss.v080.i01](https://doi.org/10.18637/jss.v080.i01).
 
 Bürkner P, Charpentier E. (2020). Modelling monotonic effects of ordinal predictors in Bayesian regression models. Br J Math Stat Psychol. 2020 Nov;73(3):420-451. doi: 10.1111/bmsp.12195.
 
@@ -382,7 +390,7 @@ Gelman, A., Carlin, J.B., Stern, H.S., Dunson, D.B., Vehtari, A., & Rubin, D.B. 
 
 McElreath, R. (2016). Statistical Rethinking: A Bayesian Course with Examples in R and Stan (1st ed.). Chapman and Hall/CRC. https://doi.org/10.1201/9781315372495
 
-Modrák, M., Moon, A. H., Kim, S., Bürkner, P., Huurre, N., Faltejsková, K., ... & Vehtari, A. (2023). Simulation-based calibration checking for Bayesian computation: The choice of test quantities shapes sensitivity. *Bayesian Analysis*, *1*(1), 1-28.
+Modrák, M., Moon, A. H., Kim, S., Bürkner, P., Huurre, N., Faltejsková, K., ... & Vehtari, A. (2023). Simulation-based calibration checking for Bayesian computation: The choice of test quantities shapes sensitivity. *Bayesian Analysis*, *18*(1), 1-28.
 
 Talts, S., Betancourt, M., Simpson, D., Vehtari, A., & Gelman, A. (2018). Validating Bayesian inference algorithms with simulation-based calibration. *arXiv preprint arXiv:1804.06788*.
 

@@ -1,2 +1,5 @@
 This folder contains any notebooks used to develop generative models of the data.
-They should result in appropriately named generator_tk.r files in NBA_L2M/00_R
+
+The generate_* files resulted in various simulate_shots functions, which now live in 00_R.
+
+The test* files tested simulate_shots.

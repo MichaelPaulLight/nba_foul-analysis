@@ -2,3 +2,5 @@
   quarto-pub:
     - id: cf1f877a-74b0-4005-a9b4-707f8086db97
       url: 'https://michael-light.quarto.pub/a-multilevel-bayesian-approach-for-inferring-the-effect-of-fouls-on-offensive-patterns-in-nba-basketball-games-6319'
+    - id: 512f9887-9a7b-486c-a578-8acce2746595
+      url: 'https://michael-light.quarto.pub/multilevel-foul-analysis'

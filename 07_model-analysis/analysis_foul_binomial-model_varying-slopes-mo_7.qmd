@@ -7,9 +7,12 @@ library(tidybayes)
 library(nanoparquet)
 library(patchwork)
 library(bayesplot)
+library(modelr)
 ```
 
 ```{r}
+model_string <- "foul_binomial_model_vs_mo_7_full.rds"
+
 model <- brm(
   formula = foul_binomial_formula_varying_slopes_mo_7,
   data = data_sample_full_agg,
@@ -22,7 +25,7 @@ model <- brm(
   seed = 42,
   control = list(adapt_delta = 0.95),
   backend = "cmdstanr",
-  file = (here::here("06_model-validation", "model.rds"))
+  file = (here::here("06_model-validation", model_string))
 )
 
 data <- read_parquet(here("02_data", "02-3_data_modeling", "sample_359266_factor.parquet"))
@@ -87,10 +90,152 @@ model |>
   stat_halfeye()
 
 model |>
+  gather_draws(r_shot_zone[shot_zone,term]) |>
+  filter(term == "modefender_foul_count") |> 
+  ggplot(aes(y = shot_zone, x = .value)) + 
+  stat_halfeye()
+
+model |>
   gather_draws(r_defensive_team[defensive_team,]) |> 
   ggplot(aes(y = defensive_team, x = .value)) + 
   stat_halfeye()
 
+# Shot Zone Bisect Plot
+# Get median values for each shot zone and term combination
+mo_zone_foul_order_data <- model |>
+  gather_draws(r_shot_zone[shot_zone,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  group_by(shot_zone, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order zones based on medians
+mo_zone_foul_plot <- model |>
+  gather_draws(r_shot_zone[shot_zone,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  mutate(shot_zone = factor(shot_zone, 
+                           levels = mo_zone_foul_order_data |> 
+                             filter(term == term[1]) |> 
+                             arrange(median_value) |> 
+                             pull(shot_zone))) |>
+  ggplot(aes(y = shot_zone, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Effect of fouls on\nshotmaking percentage by zone",
+       y = "Shot Zone")
+  
+# Get median values for each shot zone and term combination
+zone_order_data <- model |>
+  gather_draws(r_shot_zone[shot_zone,term]) |> 
+  filter(term == "Intercept") |> 
+  group_by(shot_zone, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order zones based on medians
+zone_plot <- model |>
+  gather_draws(r_shot_zone[shot_zone,term]) |> 
+  filter(term == "Intercept") |> 
+  mutate(shot_zone = factor(shot_zone, 
+                           levels = zone_order_data |> 
+                             filter(term == term[1]) |> 
+                             arrange(median_value) |> 
+                             pull(shot_zone))) |>
+  ggplot(aes(y = shot_zone, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Baseline zone effect on\nshotmaking percentage",
+       y = "Shot Zone")
+
+zone_bisect_plot <- zone_plot | mo_zone_foul_plot
+
+# Get median values for each shot zone and term combination
+zone_order_comb_data <- model |>
+  gather_draws(r_shot_zone[shot_zone,]) |> 
+  group_by(shot_zone) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order zones based on medians
+zone_comb_plot <- model |>
+  gather_draws(r_shot_zone[shot_zone,]) |> 
+  mutate(shot_zone = factor(shot_zone, 
+                           levels = zone_order_comb_data |> 
+                             arrange(median_value) |> 
+                             pull(shot_zone))) |>
+  ggplot(aes(y = shot_zone, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Total zone effect on\nshotmaking percentage",
+       y = "Shot Zone")
+
+# Save the plots
+ggsave(here("07_model-analysis", "07-01_figures", "zone_bisect_plot.png"), zone_bisect_plot, width = 10, height = 8)
+ggsave(here("07_model-analysis", "07-01_figures", "zone_comb_plot.png"), zone_comb_plot, width = 10, height = 8)
+
+# Shot Movement Bisect Plot
+# Get median values for each shot movement and term combination
+mo_movement_foul_order_data <- model |>
+  gather_draws(r_shot_movement[shot_movement,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  group_by(shot_movement, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order movements based on medians
+mo_movement_foul_plot <- model |>
+  gather_draws(r_shot_movement[shot_movement,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  mutate(shot_movement = factor(shot_movement, 
+                               levels = mo_movement_foul_order_data |> 
+                                 filter(term == term[1]) |> 
+                                 arrange(median_value) |> 
+                                 pull(shot_movement))) |>
+  ggplot(aes(y = shot_movement, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Effect of fouls on\nshotmaking percentage by movement",
+       y = "Shot Movement")
+  
+# Get median values for each shot movement and term combination
+movement_order_data <- model |>
+  gather_draws(r_shot_movement[shot_movement,term]) |> 
+  filter(term == "Intercept") |> 
+  group_by(shot_movement, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order movements based on medians
+movement_plot <- model |>
+  gather_draws(r_shot_movement[shot_movement,term]) |> 
+  filter(term == "Intercept") |> 
+  mutate(shot_movement = factor(shot_movement, 
+                               levels = movement_order_data |> 
+                                 filter(term == term[1]) |> 
+                                 arrange(median_value) |> 
+                                 pull(shot_movement))) |>
+  ggplot(aes(y = shot_movement, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Baseline movement effect on\nshotmaking percentage",
+       y = "Shot Movement")
+
+movement_bisect_plot <- movement_plot | mo_movement_foul_plot
+
+# Get median values for each shot movement and term combination
+movement_order_comb_data <- model |>
+  gather_draws(r_shot_movement[shot_movement,]) |> 
+  group_by(shot_movement) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order movements based on medians
+movement_comb_plot <- model |>
+  gather_draws(r_shot_movement[shot_movement,]) |> 
+  mutate(shot_movement = factor(shot_movement, 
+                               levels = movement_order_comb_data |> 
+                                 arrange(median_value) |> 
+                                 pull(shot_movement))) |>
+  ggplot(aes(y = shot_movement, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Total movement effect on\nshotmaking percentage",
+       y = "Shot Movement")
+
+# Save the plots
+ggsave(here("07_model-analysis", "07-01_figures", "movement_bisect_plot.png"), movement_bisect_plot, width = 10, height = 8)
+ggsave(here("07_model-analysis", "07-01_figures", "movement_comb_plot.png"), movement_comb_plot, width = 10, height = 8)
+```
+
+```{r}
 # Get median values for each team and term combination
 mo_def_foul_order_data <- model |>
   gather_draws(r_defensive_team[defensive_team,term]) |> 
@@ -157,4 +302,1344 @@ team_comb_plot <- model |>
 ggsave(here("07_model-analysis", "bisect_plot.png"), bisect_plot, width = 10, height = 8)
 
 ggsave(here("07_model-analysis", "team_comb_plot.png"), team_comb_plot, width = 10, height = 8)
+```
+
+```{r}
+# Get median values for each team and term combination
+mo_def_foul_order_player_worst <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  group_by(primary_defender, term) |>
+  summarise(median_value = median(.value), .groups = "drop") |>
+  arrange(desc(median_value)) |>
+  slice_head(n = 30)
+
+mo_def_foul_order_player_best <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  group_by(primary_defender, term) |>
+  summarise(median_value = median(.value), .groups = "drop") |>
+  arrange(desc(median_value)) |>
+  slice_tail(n = 30)
+
+# Plot using top 10 players with highest foul effect
+mo_def_foul_plot_worst <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  filter(primary_defender %in% mo_def_foul_order_player_worst$primary_defender) |>
+  mutate(primary_defender = factor(primary_defender, 
+                               levels = mo_def_foul_order_player_worst$primary_defender)) |>
+  ggplot(aes(y = primary_defender, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Effect of fouls on opponent shotmaking percentage (Top 10)",
+       subtitle = "Higher values indicate more impact of fouls",
+       y = "Player")
+
+mo_def_foul_plot_best <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  filter(primary_defender %in% mo_def_foul_order_player_best$primary_defender) |>
+  mutate(primary_defender = factor(primary_defender, 
+                               levels = mo_def_foul_order_player_best$primary_defender)) |>
+  ggplot(aes(y = primary_defender, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Effect of fouls on opponent shotmaking percentage (Top 10)",
+       subtitle = "Higher values indicate more impact of fouls",
+       y = "Player")
+
+(mo_def_foul_plot_best | mo_def_foul_plot_worst) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title = "Effect of fouls on opponent shotmaking percentage (Top and Bottom 10)",
+    subtitle = "Higher values mean opponents shoot better when this player has more fouls on the floor"
+  ) +
+  labs(y = "Defender") &
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+
+# Get median values for each team and term combination
+mo_def_int_order_player_best <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "Intercept") |> 
+  group_by(primary_defender, term) |>
+  summarise(median_value = median(.value), .groups = "drop") |>
+  arrange(desc(median_value)) |>
+  slice_head(n = 30)
+
+mo_def_int_order_player_worst <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "Intercept") |> 
+  group_by(primary_defender, term) |>
+  summarise(median_value = median(.value), .groups = "drop") |>
+  arrange(desc(median_value)) |>
+  slice_tail(n = 30)
+
+# Plot using top 10 players with highest foul effect
+mo_def_int_plot_worst <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "Intercept") |> 
+  filter(primary_defender %in% mo_def_int_order_player_best$primary_defender) |>
+  mutate(primary_defender = factor(primary_defender, 
+                               levels = mo_def_int_order_player_best$primary_defender)) |>
+  ggplot(aes(y = primary_defender, x = .value)) + 
+  stat_halfeye()
+
+mo_def_int_plot_best <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "Intercept") |> 
+  filter(primary_defender %in% mo_def_int_order_player_worst$primary_defender) |>
+  mutate(primary_defender = factor(primary_defender, 
+                               levels = mo_def_int_order_player_worst$primary_defender)) |>
+  ggplot(aes(y = primary_defender, x = .value)) + 
+  stat_halfeye()
+
+(mo_def_int_plot_best | mo_def_int_plot_worst) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title = "Baseline effect on opponent shotmaking percentage (Top and Bottom 10)",
+    subtitle = "Higher values mean opponents shoot better when this player is on the floor"
+  ) +
+  labs(y = "Defender") &
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+
+# Get median values for each team and term combination
+mo_def_comb_order_player_best <- model |>
+  gather_draws(r_primary_defender[primary_defender,]) |> 
+  group_by(primary_defender) |>
+  summarise(median_value = median(.value), .groups = "drop") |>
+  arrange(desc(median_value)) |>
+  slice_head(n = 30)
+
+mo_def_comb_order_player_worst <- model |>
+  gather_draws(r_primary_defender[primary_defender,]) |> 
+  group_by(primary_defender) |>
+  summarise(median_value = median(.value), .groups = "drop") |>
+  arrange(desc(median_value)) |>
+  slice_tail(n = 30)
+
+# Plot using top 10 players with highest foul effect
+mo_def_comb_plot_worst <- model |>
+  gather_draws(r_primary_defender[primary_defender,]) |> 
+  filter(primary_defender %in% mo_def_comb_order_player_best$primary_defender) |>
+  mutate(primary_defender = factor(primary_defender, 
+                               levels = mo_def_comb_order_player_best$primary_defender)) |>
+  ggplot(aes(y = primary_defender, x = .value)) + 
+  stat_halfeye()
+
+mo_def_comb_plot_best <- model |>
+  gather_draws(r_primary_defender[primary_defender,]) |> 
+  filter(primary_defender %in% mo_def_comb_order_player_worst$primary_defender) |>
+  mutate(primary_defender = factor(primary_defender, 
+                               levels = mo_def_comb_order_player_worst$primary_defender)) |>
+  ggplot(aes(y = primary_defender, x = .value)) + 
+  stat_halfeye()
+
+(mo_def_comb_plot_best | mo_def_comb_plot_worst) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title = "Total effect on opponent shotmaking percentage (Top and Bottom 10)",
+    subtitle = "Higher values mean opponents shoot better when this player is on the floor, accounting for the effect of fouls"
+  ) +
+  labs(y = "Defender") &
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+```
+
+```{r}
+
+gsw <- data |> 
+  ungroup() |> 
+  filter(defensive_team == "GSW") |> 
+  filter(primary_defender %in% c("Draymond Green", "Jonathan Kuminga")) |>
+  data_grid(defensive_team, offensive_team, primary_defender, defender_position, shot_movement, shot_zone, defender_foul_count) |>
+  mutate(shots_defended_total = 100) |> 
+  add_predicted_draws(model)
+
+gsw |> 
+  filter(str_detect(shot_zone, "Paint")) |> 
+  ggplot(aes(x = .prediction)) +
+  stat_dotsinterval(aes(y = primary_defender), quantiles = 100) +
+  facet_wrap(vars(defender_foul_count))
+
+```
+
+```{r}
+# Get median values for each shot movement and term combination
+shot_movement_foul_effect <- model |>
+  gather_draws(r_shot_movement[shot_movement,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  group_by(shot_movement, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order shot movements based on medians
+shot_movement_foul_plot <- model |>
+  gather_draws(r_shot_movement[shot_movement,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  mutate(shot_movement = factor(shot_movement, 
+                               levels = shot_movement_foul_effect |> 
+                                 arrange(median_value) |> 
+                                 pull(shot_movement))) |>
+  ggplot(aes(y = shot_movement, x = .value)) + 
+  stat_halfeye() +
+  labs(title = "Effect of fouls on shot making by shot movement type",
+       subtitle = "Higher values indicate shots are more likely to go in as defender fouls increase",
+       x = "Effect size",
+       y = "Shot Movement Type")
+
+# Create a grid to simulate predictions for different shot movements and foul counts
+shot_movement_pred_data <- data |> 
+  ungroup() |>
+  data_grid(
+    shot_movement,
+    defender_foul_count,
+    defensive_team = "LAL", # Using Lakers as example
+    offensive_team = "BOS", # Using Celtics as example
+    primary_defender = "LeBron James", # Example defender
+    defender_position = "F", # Forward
+    shot_zone = "Paint - Non-RA", # Example zone
+    shot_type_basic = "2PT" # Example shot type
+  ) |>
+  mutate(shots_defended_total = 100) |> 
+  add_predicted_draws(model)
+
+# Create plot showing shot making probability by foul count for each shot movement
+shot_movement_prediction_plot <- shot_movement_pred_data |>
+  ggplot(aes(x = defender_foul_count, y = .prediction, color = shot_movement)) +
+  stat_lineribbon(aes(y = .prediction), .width = c(0.80), alpha = 0.2) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1) +
+  labs(title = "Predicted shot making probability by defender foul count",
+       subtitle = "Different lines represent different shot movement types",
+       x = "Defender Foul Count",
+       y = "Predicted Shot Making Probability",
+       color = "Shot Movement") +
+  theme_minimal()
+
+# Display plots
+shot_movement_foul_plot
+
+shot_movement_prediction_plot
+
+# Save plots
+ggsave(here("07_model-analysis", "shot_movement_foul_effect.png"), shot_movement_foul_plot, width = 10, height = 6)
+ggsave(here("07_model-analysis", "shot_movement_prediction_by_fouls.png"), shot_movement_prediction_plot, width = 12, height = 8)
+
+# Create faceted version showing each shot movement separately
+shot_movement_facet_plot <- shot_movement_pred_data |>
+  ggplot(aes(x = defender_foul_count, y = .prediction)) +
+  stat_lineribbon(aes(y = .prediction), .width = c(0.80), alpha = 0.3) +
+  facet_wrap(~shot_movement) +
+  labs(title = "Effect of defender foul count on shot making by movement type",
+       subtitle = "Shows probability distribution with 80% intervals",
+       x = "Defender Foul Count", 
+       y = "Predicted Shot Making Probability") +
+  theme_minimal()
+
+shot_movement_facet_plot
+
+ggsave(here("07_model-analysis", "shot_movement_facet_by_fouls.png"), shot_movement_facet_plot, width = 12, height = 8)
+```
+
+```{r}
+# Get foul effect for all players
+player_foul_effects <- model |>
+  gather_draws(r_primary_defender[primary_defender,term]) |> 
+  filter(term == "modefender_foul_count") |>
+  # Convert model player names to match data format (firstname.lastname -> firstname lastname)
+  mutate(primary_defender_data = str_replace(primary_defender, "\\.", " "))
+
+# Join with data to get team and position information
+player_team_position <- data |> 
+  ungroup() |>
+  select(primary_defender, defensive_team, defender_position) |>
+  distinct()
+
+# Calculate median effect for each player
+player_foul_effects_summary <- player_foul_effects |>
+  group_by(primary_defender, primary_defender_data) |>
+  summarise(median_effect = median(.value), 
+            q25 = quantile(.value, 0.25),
+            q75 = quantile(.value, 0.75),
+            .groups = "drop") |>
+  # Join using the converted player name format
+  left_join(player_team_position, by = c("primary_defender_data" = "primary_defender"))
+
+# Order teams by median foul effect
+team_order <- player_foul_effects_summary |>
+  filter(!is.na(defensive_team)) |>
+  group_by(defensive_team) |>
+  summarise(team_median = median(median_effect, na.rm = TRUE)) |>
+  arrange(team_median) |>
+  pull(defensive_team)
+
+# Create a combined filtered and cleaned dataset 
+player_team_data_clean <- player_foul_effects_summary |>
+  # Remove duplicates (players who played for multiple teams)
+  distinct(primary_defender, primary_defender_data, median_effect, q25, q75, defensive_team, defender_position) |>
+  # Remove NAs
+  filter(!is.na(defensive_team), !is.na(defender_position)) |>
+  # Order teams
+  mutate(defensive_team = factor(defensive_team, levels = team_order))
+
+# Create PDF with one team per page
+pdf(here("07_model-analysis", "team_foul_effects_individual.pdf"), width = 10, height = 8)
+
+# Loop through each team to create individual plots
+for(team in team_order) {
+  # Filter data for current team
+  team_data <- player_team_data_clean |>
+    filter(defensive_team == team)
+  
+  # Create team plot
+  p <- ggplot(team_data, 
+         aes(x = median_effect, 
+             y = reorder(primary_defender_data, median_effect),
+             color = defender_position)) +
+    geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+    geom_point(size = 3) +
+    geom_linerange(aes(xmin = q25, xmax = q75), linewidth = 1) +
+    labs(title = paste0("Effect of Fouls on Shot Making: ", team),
+         subtitle = "Higher values = worse defense with more fouls",
+         x = "Foul Effect (change in log-odds)",
+         y = "",
+         color = "Position") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      axis.text.y = element_text(size = 12),
+      legend.position = "top"
+    )
+  
+  # Print to PDF
+  print(p)
+  
+  # Also save as individual PNG
+  ggsave(here("07_model-analysis", paste0("team_foul_effect_", team, ".png")), 
+         p, width = 10, height = 8, dpi = 300)
+}
+
+# Close PDF device
+dev.off()
+
+# Also create a single plot with all teams as before for comparison
+player_team_foul_plot <- player_team_data_clean |>
+  ggplot(aes(x = median_effect, y = reorder(primary_defender_data, median_effect), 
+             color = defender_position)) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_point() +
+  geom_linerange(aes(xmin = q25, xmax = q75)) +
+  facet_grid(defensive_team ~ ., scales = "free_y", space = "free") +
+  labs(title = "Effect of Fouls on Shot Making by Player",
+       subtitle = "Grouped by team, colored by position | Higher values = worse defense with more fouls",
+       x = "Foul Effect (change in log-odds)",
+       y = "",
+       color = "Position") +
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0),
+    strip.background = element_rect(fill = "lightgrey", color = NA),
+    panel.spacing.y = unit(0.5, "lines"),
+    legend.position = "top"
+  )
+
+# Save the combined plot as well
+ggsave(here("07_model-analysis", "player_foul_effects_by_team.png"), player_team_foul_plot, 
+       width = 12, height = 24, dpi = 300)
+```
+
+```{r}
+library(ggrepel)
+
+# Create a comparison of player performance with high vs low fouls
+# First, let's select some interesting teams to focus on
+focus_teams <- c("LAL", "GSW", "BOS", "MIL", "MIA")
+
+# Create prediction data for players from these teams
+player_foul_comparison_data <- data |> 
+  ungroup() |>
+  filter(defensive_team %in% focus_teams) |>
+  # Get unique players from these teams
+  select(primary_defender, defensive_team, defender_position) |>
+  distinct() |>
+  # Create data grid with low and high foul counts for comparison
+  crossing(
+    defender_foul_count = c("0", "5"),  # Compare 0 fouls vs 5 fouls
+    shot_movement = "stationary",  # Use specific shot type for consistency
+    offensive_team = "OKC",       # Example offensive team
+    shot_zone = "Mid-Range", # Example shot zone
+  ) |>
+  mutate(shots_defended_total = 100) |> 
+  add_predicted_draws(model, ndraws = 200)  # Use fewer draws for efficiency
+
+# Calculate summary stats for each player at each foul level
+player_foul_comparison_summary <- player_foul_comparison_data |>
+  group_by(primary_defender, defensive_team, defender_position, defender_foul_count) |>
+  summarize(
+    mean_prediction = mean(.prediction),
+    lower_bound = quantile(.prediction, 0.025),
+    upper_bound = quantile(.prediction, 0.975),
+    .groups = "drop"
+  ) |>
+  # Format for plotting
+  pivot_wider(
+    names_from = defender_foul_count,
+    values_from = c(mean_prediction, lower_bound, upper_bound),
+    names_sep = "_"
+  ) |>
+  # Calculate the effect size (difference between high and low fouls)
+  mutate(
+    effect_size = mean_prediction_5 - mean_prediction_0,
+    # Create a label for significant effects
+    sig_effect = if_else(
+      lower_bound_5 > upper_bound_0 | upper_bound_5 < lower_bound_0,
+      "Significant",
+      "Not Significant"
+    )
+  ) |>
+  # Order by effect size
+  arrange(desc(effect_size))
+
+# Create a visualization showing the difference
+ggplot(player_foul_comparison_summary, 
+       aes(x = mean_prediction_0, 
+           y = mean_prediction_5, 
+           color = defensive_team,
+           shape = defender_position)) +
+  # Add diagonal line for reference (no change)
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", alpha = 0.5) +
+  # Add points
+  geom_point(aes(size = abs(effect_size), alpha = sig_effect == "Significant")) +
+  # Add text labels for notable players (those with large effects)
+  geom_text_repel(
+    data = player_foul_comparison_summary |> 
+      filter(abs(effect_size) > quantile(abs(effect_size), 0.9) | 
+             (sig_effect == "Significant" & abs(effect_size) > quantile(abs(effect_size), 0.75))),
+    aes(label = primary_defender),
+    size = 3,
+    max.overlaps = 15,
+    box.padding = 0.5
+  ) +
+  # Formatting
+  scale_alpha_manual(values = c("TRUE" = 1, "FALSE" = 0.5)) +
+  scale_size_continuous(range = c(1, 5)) +
+  coord_equal() +
+  labs(
+    title = "Player Performance: 0 Fouls vs 5 Fouls",
+    subtitle = "Higher values = worse defensive performance (opponent shot makes % increases)",
+    x = "Predicted shot make % with 0 fouls",
+    y = "Predicted shot make % with 5 fouls",
+    color = "Team",
+    shape = "Position",
+    size = "Effect size",
+    alpha = "Statistical significance"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+# Save the plot
+ggsave(here("07_model-analysis", "player_foul_comparison_scatterplot.png"), width = 12, height = 10)
+
+# Create alternate visualization showing players most and least affected by fouls
+# First, filter to most significant players for clarity
+top_affected_players <- player_foul_comparison_summary |>
+  mutate(abs_effect = abs(effect_size)) |>
+  group_by(defensive_team) |>
+  # Get top 5 most affected players per team
+  slice_max(order_by = abs_effect, n = 5) |>
+  ungroup()
+
+# Create a connected dot plot showing low vs high foul performance
+ggplot(top_affected_players, aes(y = reorder(primary_defender, effect_size))) +
+  # Add low foul point
+  geom_point(aes(x = mean_prediction_0, color = "0 Fouls"), size = 3) +
+  # Add high foul point
+  geom_point(aes(x = mean_prediction_5, color = "5 Fouls"), size = 3) +
+  # Connect the points
+  geom_segment(aes(x = mean_prediction_0, xend = mean_prediction_5,
+                   yend = primary_defender),
+               alpha = 0.7) +
+  # Facet by team
+  facet_wrap(~defensive_team, scales = "free_y") +
+  # Formatting
+  scale_color_manual(values = c("0 Fouls" = "blue", "5 Fouls" = "red")) +
+  labs(
+    title = "Player Performance Changes with Increased Foul Count",
+    subtitle = "Shows opponent shot make % with 0 vs 5 fouls for most affected players by team",
+    x = "Predicted opponent shot make %",
+    y = "",
+    color = "Foul Count"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.background = element_rect(fill = "lightgrey"),
+    strip.text = element_text(face = "bold"),
+    panel.spacing = unit(1, "lines")
+  )
+
+# Save the plot
+ggsave(here("07_model-analysis", "player_foul_comparison_by_team.png"), width = 12, height = 10)
+```
+
+```{r}
+# Select one team for detailed analysis
+selected_team <- "GSW"  # Golden State Warriors
+
+# Create prediction data for players from this team with more foul count levels
+single_team_comparison_data <- data |> 
+  ungroup() |>
+  filter(defensive_team == selected_team) |>
+  # Get unique players from this team
+  select(primary_defender, defensive_team, defender_position) |>
+  distinct() |>
+  # Create data grid with all foul counts for comparison
+  crossing(
+    defender_foul_count = c("0", "1", "2", "3", "4", "5"),  # All foul counts
+    shot_movement = "stationary",  # Use specific shot type for consistency
+    offensive_team = "OKC",       # Example offensive team
+    shot_zone = "Mid-Range"      # Example shot zone
+  ) |>
+  mutate(shots_defended_total = 100) |> 
+  add_predicted_draws(model, ndraws = 200)  # Use fewer draws for efficiency
+
+# Calculate summary stats for each player at each foul level
+single_team_summary <- single_team_comparison_data |>
+  group_by(primary_defender, defensive_team, defender_position, defender_foul_count) |>
+  summarize(
+    mean_prediction = mean(.prediction),
+    lower_bound = quantile(.prediction, 0.025),
+    upper_bound = quantile(.prediction, 0.975),
+    .groups = "drop"
+  )
+
+# Focus on extremes (0 fouls vs 5 fouls) for the scatter plot
+single_team_wide <- single_team_summary |>
+  filter(defender_foul_count %in% c("0", "5")) |>
+  pivot_wider(
+    id_cols = c(primary_defender, defensive_team, defender_position),
+    names_from = defender_foul_count,
+    values_from = c(mean_prediction, lower_bound, upper_bound),
+    names_sep = "_"
+  ) |>
+  # Calculate effect size
+  mutate(
+    effect_size = mean_prediction_5 - mean_prediction_0,
+    sig_effect = if_else(
+      lower_bound_5 > upper_bound_0 | upper_bound_5 < lower_bound_0,
+      "Significant",
+      "Not Significant"
+    )
+  ) |>
+  arrange(desc(effect_size))
+
+# Create a single team scatter plot with diagonal line
+gsw_scatter_plot <- ggplot(single_team_wide, 
+       aes(x = mean_prediction_0, 
+           y = mean_prediction_5,
+           shape = defender_position)) +
+  # Add diagonal line for reference (no change) - dashed as requested
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  # Add points
+  geom_point(aes(size = abs(effect_size), color = sig_effect == "Significant"), alpha = 0.8) +
+  # Add text labels for all players
+  geom_text_repel(
+    aes(label = primary_defender),
+    size = 4,
+    max.overlaps = 15,
+    box.padding = 0.5,
+    force = 3
+  ) +
+  # Formatting
+  scale_color_manual(values = c("TRUE" = "#D55E00", "FALSE" = "#0072B2")) +
+  scale_size_continuous(range = c(2, 8)) +
+  coord_equal(xlim = range(single_team_wide$mean_prediction_0, single_team_wide$mean_prediction_5),
+              ylim = range(single_team_wide$mean_prediction_0, single_team_wide$mean_prediction_5)) +
+  labs(
+    title = paste0(selected_team, " Players: Performance with 0 vs 5 Fouls"),
+    subtitle = "Points above diagonal line = worse defense with more fouls",
+    x = "Predicted opponent shot make % with 0 fouls",
+    y = "Predicted opponent shot make % with 5 fouls",
+    shape = "Position",
+    size = "Effect Size",
+    color = "Statistically\nSignificant"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right",
+    panel.grid.minor = element_blank()
+  )
+
+# Display the plot
+gsw_scatter_plot
+
+# Save the plot
+ggsave(here("07_model-analysis", paste0(selected_team, "_foul_comparison.png")), 
+       gsw_scatter_plot, width = 10, height = 8, dpi = 300)
+
+# Create line plot showing trend across all foul counts
+# First identify top affected players for highlighting
+top_players <- single_team_wide |>
+  slice_max(order_by = abs(effect_size), n = 5) |>
+  pull(primary_defender)
+
+# Create the line plot showing trend for all foul counts
+single_team_line_plot <- single_team_summary |>
+  # Convert foul count to numeric for proper ordering on x-axis
+  mutate(foul_count_num = as.numeric(as.character(defender_foul_count))) |>
+  # Highlight top affected players
+  mutate(player_highlight = ifelse(primary_defender %in% top_players, primary_defender, "Other")) |>
+  ggplot(aes(x = foul_count_num, y = mean_prediction, group = primary_defender)) +
+  # Background lines for all players
+  geom_line(data = . %>% filter(player_highlight == "Other"), 
+            alpha = 0.2, color = "gray70") +
+  # Highlighted lines for top affected players
+  geom_line(data = . %>% filter(player_highlight != "Other"),
+            aes(color = player_highlight), linewidth = 1.2) +
+  # Add points
+  geom_point(data = . %>% filter(player_highlight != "Other"),
+             aes(color = player_highlight), size = 3) +
+  # Labels
+  labs(
+    title = paste0("Effect of Foul Count on Defense: ", selected_team, " Players"),
+    subtitle = "Higher values = worse defense (opponents make more shots)",
+    x = "Number of Fouls",
+    y = "Predicted Opponent Shot Make %",
+    color = "Player"
+  ) +
+  # Formatting
+  scale_x_continuous(breaks = 0:5) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+
+# Display the line plot
+single_team_line_plot
+
+# Save the line plot
+ggsave(here("07_model-analysis", paste0(selected_team, "_foul_trend.png")), 
+       single_team_line_plot, width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+top_players <- single_team_wide |>
+  slice_min(order_by = abs(effect_size), n = 5) |>
+  pull(primary_defender)
+
+# Enhanced analysis with shot movement and shot zone
+# Select a subset of top players for clarity
+selected_players <- top_players[1:3]  # Top 3 most affected players
+
+# Get shot movement types from data
+shot_movements <- unique(data$shot_movement)  # Limit to 4 movement types for clarity
+
+# Get shot zones from data
+shot_zones <- unique(data$shot_zone)
+
+# Create a more comprehensive prediction dataset with shot movement and zone variations
+enhanced_prediction_data <- data |> 
+  ungroup() |>
+  filter(defensive_team == selected_team,
+         primary_defender %in% selected_players) |>
+  select(primary_defender, defensive_team, defender_position) |>
+  distinct() |>
+  # Create data grid with various combinations
+  crossing(
+    defender_foul_count = c("0", "1", "2", "3", "4", "5"),
+    shot_movement = shot_movements,
+    shot_zone = shot_zones,
+    offensive_team = "OKC"  # Example offensive team
+  ) |>
+  mutate(shots_defended_total = 100) |> 
+  add_predicted_draws(model, ndraws = 300)  # Fewer draws for efficiency with larger dataset
+
+# Calculate summary stats
+enhanced_summary <- enhanced_prediction_data |>
+  group_by(primary_defender, shot_movement, shot_zone, defender_foul_count) |>
+  summarize(
+    mean_prediction = mean(.prediction),
+    lower_bound = quantile(.prediction, 0.1),  # 80% interval for cleaner visualization
+    upper_bound = quantile(.prediction, 0.9),
+    .groups = "drop"
+  ) |>
+  # Convert foul count to numeric for proper ordering
+  mutate(foul_count_num = as.numeric(as.character(defender_foul_count)))
+
+# 1. Create line plot by shot movement for top players
+movement_line_plot <- enhanced_summary |>
+  ggplot(aes(x = foul_count_num, y = mean_prediction, 
+             color = shot_movement, group = interaction(primary_defender, shot_movement))) +
+  # Add lines with transparency
+  geom_line(alpha = 0.7, linewidth = 1) +
+  # Add points
+  geom_point(size = 2) +
+  # Add confidence intervals (lightly)
+  geom_ribbon(aes(ymin = lower_bound, ymax = upper_bound, fill = shot_movement), 
+              alpha = 0.1, color = NA) +
+  # Facet by player
+  facet_wrap(~primary_defender, scales = "free_y") +
+  # Labels
+  labs(
+    title = paste0(selected_team, " Players: Effect of Fouls by Shot Movement Type"),
+    subtitle = "Shows how foul count affects defense against different shot types",
+    x = "Number of Fouls",
+    y = "Predicted Opponent Shot Make %",
+    color = "Shot Movement",
+    fill = "Shot Movement"
+  ) +
+  # Formatting
+  scale_x_continuous(breaks = 0:5) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.background = element_rect(fill = "lightgrey"),
+    strip.text = element_text(face = "bold", size = 12),
+    panel.spacing = unit(1, "lines"),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+
+# Display and save the plot
+movement_line_plot
+ggsave(here("07_model-analysis", paste0(selected_team, "_movement_foul_trend.png")), 
+       movement_line_plot, width = 12, height = 10, dpi = 300)
+
+# 2. Create line plot by shot zone for top players
+zone_line_plot <- enhanced_summary |>
+  ggplot(aes(x = foul_count_num, y = mean_prediction, 
+             color = shot_zone, group = interaction(primary_defender, shot_zone))) +
+  # Add lines with transparency
+  geom_line(alpha = 0.7, linewidth = 1) +
+  # Add points
+  geom_point(size = 2) +
+  # Facet by player
+  facet_wrap(~primary_defender, scales = "free_y") +
+  # Labels
+  labs(
+    title = paste0(selected_team, " Players: Effect of Fouls by Shot Zone"),
+    subtitle = "Shows how foul count affects defense in different court areas",
+    x = "Number of Fouls",
+    y = "Predicted Opponent Shot Make %",
+    color = "Shot Zone"
+  ) +
+  # Formatting
+  scale_x_continuous(breaks = 0:5) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.background = element_rect(fill = "lightgrey"),
+    strip.text = element_text(face = "bold", size = 12),
+    panel.spacing = unit(1, "lines"),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+
+# Display and save the plot
+zone_line_plot
+ggsave(here("07_model-analysis", paste0(selected_team, "_zone_foul_trend.png")), 
+       zone_line_plot, width = 12, height = 10, dpi = 300)
+
+# 3. Create a heatmap to compare movement vs zone for the top player at high foul count
+top_player <- top_players[1]  # Select the most affected player
+
+# Get more detailed data for confidence calculations
+heat_data_detailed <- enhanced_prediction_data |>
+  filter(primary_defender == top_player,
+         defender_foul_count %in% c("0", "5")) |>  # Compare 0 vs 5 fouls
+  # Get individual draws for confidence calculation
+  select(primary_defender, shot_movement, shot_zone, defender_foul_count, .prediction, .draw) |>
+  # Reshape to calculate effect size for each draw
+  pivot_wider(
+    id_cols = c(primary_defender, shot_movement, shot_zone, .draw),
+    names_from = defender_foul_count,
+    values_from = .prediction,
+    names_prefix = "fouls_"
+  ) |>
+  # Calculate effect size for each draw
+  mutate(effect_size = fouls_5 - fouls_0)
+
+# Summarize to get confidence metrics
+heat_data <- heat_data_detailed |>
+  group_by(primary_defender, shot_movement, shot_zone) |>
+  summarize(
+    # Mean effect size
+    mean_effect = mean(effect_size),
+    # Standard error of the effect size
+    se_effect = sd(effect_size) / sqrt(n()),
+    # Calculate confidence metrics
+    prob_positive = mean(effect_size > 0),  # Probability of positive effect
+    prob_negative = mean(effect_size < 0),  # Probability of negative effect
+    # Calculate confidence as distance from 0.5 (uncertain) multiplied by 2 to get 0-1 range
+    confidence = 2 * abs(prob_positive - 0.5),
+    # Calculate confidence intervals
+    lower_ci = quantile(effect_size, 0.025),
+    upper_ci = quantile(effect_size, 0.975),
+    # Determine if effect is "significant" (doesn't cross zero)
+    is_significant = (lower_ci > 0) | (upper_ci < 0),
+    .groups = "drop"
+  )
+
+# Create a heatmap of the effect sizes with confidence-based text transparency
+heatmap_plot <- ggplot(heat_data, aes(x = shot_zone, y = shot_movement, fill = mean_effect)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  # Use a diverging color scale centered at 0
+  scale_fill_gradient2(
+    low = "blue", 
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "Effect Size"
+  ) +
+  # Add values to tiles with transparency based on confidence
+  geom_text(
+    aes(
+      label = sprintf("%.3f", mean_effect),
+      # Alpha based on confidence (more confident = more opaque)
+      alpha = confidence,
+      # Make significant effects bold
+      fontface = ifelse(is_significant, "bold", "plain")
+    ), 
+    color = "black", 
+    size = 3
+  ) +
+  # Set scale for transparency
+  scale_alpha_continuous(
+    range = c(0.2, 1),
+    name = "Confidence"
+  ) +
+  # Labels
+  labs(
+    title = paste0("Effect of Fouls (0 vs 5) for ", top_player, " by Shot Type and Zone"),
+    subtitle = "Red = worse defense with fouls, Blue = better defense with fouls\nText opacity shows confidence in effect (darker = more confident)",
+    x = "Shot Zone",
+    y = "Shot Movement"
+  ) +
+  # Formatting
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"),
+    panel.grid.major = element_blank(),
+    legend.position = "right"
+  )
+
+# Create a version with confidence intervals shown
+heatmap_plot_with_ci <- ggplot(heat_data, aes(x = shot_zone, y = shot_movement, fill = mean_effect)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  # Use a diverging color scale centered at 0
+  scale_fill_gradient2(
+    low = "blue", 
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "Effect Size"
+  ) +
+  # Add effect sizes with confidence intervals
+  geom_text(
+    aes(
+      label = sprintf("%.2f\n[%.2f, %.2f]", mean_effect, lower_ci, upper_ci),
+      # Alpha based on confidence
+      alpha = confidence,
+      # Bold for significant effects
+      fontface = ifelse(is_significant, "bold", "plain")
+    ), 
+    color = "black", 
+    size = 2.5
+  ) +
+  # Set scale for transparency
+  scale_alpha_continuous(
+    range = c(0.2, 1),
+    name = "Confidence"
+  ) +
+  # Labels
+  labs(
+    title = paste0("Effect of Fouls (0 vs 5) for ", top_player, " by Shot Type and Zone"),
+    subtitle = "With 95% confidence intervals in brackets\nText opacity shows confidence in effect (darker = more confident)",
+    x = "Shot Zone",
+    y = "Shot Movement"
+  ) +
+  # Formatting
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"),
+    panel.grid.major = element_blank(),
+    legend.position = "right"
+  )
+
+# Display and save the heatmaps
+heatmap_plot
+ggsave(here("07_model-analysis", paste0(selected_team, "_", gsub(" ", "_", top_player), "_heatmap.png")), 
+       heatmap_plot, width = 12, height = 8, dpi = 300)
+
+heatmap_plot_with_ci
+ggsave(here("07_model-analysis", paste0(selected_team, "_", gsub(" ", "_", top_player), "_heatmap_with_ci.png")), 
+       heatmap_plot_with_ci, width = 14, height = 10, dpi = 300)
+```
+
+```{r}
+# Create a function to generate comparative heatmap between two players at two foul counts
+compare_players_heatmap <- function(
+  player1, 
+  player2, 
+  foul_count1 = "0", 
+  foul_count2 = "5", 
+  shot_movement_subset = NULL, 
+  shot_zone_subset = NULL,
+  offensive_team = "OKC",  # Add offensive_team parameter
+  defensive_team = NULL,   # Add defensive_team parameter
+  ndraws = 300,
+  title = NULL,
+  show_uncertainty = TRUE  # Add parameter to toggle uncertainty display
+) {
+  # Validate inputs
+  if (!player1 %in% unique(data$primary_defender)) {
+    stop(paste("Player 1:", player1, "not found in data"))
+  }
+  if (!player2 %in% unique(data$primary_defender)) {
+    stop(paste("Player 2:", player2, "not found in data"))
+  }
+  if (!offensive_team %in% unique(data$offensive_team)) {
+    stop(paste("Offensive team:", offensive_team, "not found in data"))
+  }
+  if (!is.null(defensive_team) && !defensive_team %in% unique(data$defensive_team)) {
+    stop(paste("Defensive team:", defensive_team, "not found in data"))
+  }
+  
+  # Filter shot movements and zones if specified
+  if (is.null(shot_movement_subset)) {
+    shot_movements_to_use <- unique(data$shot_movement)
+  } else {
+    shot_movements_to_use <- shot_movement_subset
+  }
+  
+  if (is.null(shot_zone_subset)) {
+    shot_zones_to_use <- unique(data$shot_zone)
+  } else {
+    shot_zones_to_use <- shot_zone_subset
+  }
+  
+  # Get team info for the players
+  player_info <- data |> 
+    ungroup() |>
+    filter(primary_defender %in% c(player1, player2))
+  
+  # Apply defensive team filter if specified
+  if (!is.null(defensive_team)) {
+    player_info <- player_info |>
+      filter(defensive_team == !!defensive_team)
+    
+    # If no rows left, the players don't play for this team
+    if (nrow(player_info) == 0) {
+      stop(paste("Neither player plays for the defensive team:", defensive_team))
+    }
+    
+    # Check if both players play for this team
+    if (!player1 %in% player_info$primary_defender) {
+      stop(paste(player1, "does not play for", defensive_team))
+    }
+    if (!player2 %in% player_info$primary_defender) {
+      stop(paste(player2, "does not play for", defensive_team))
+    }
+  }
+  
+  # Get just the player info columns we need
+  player_info <- player_info |>
+    select(primary_defender, defensive_team, defender_position) |>
+    distinct()
+  
+  # Get positions for both players
+  player1_position <- player_info |> 
+    filter(primary_defender == player1) |> 
+    pull(defender_position) |> 
+    unique()
+  
+  player2_position <- player_info |> 
+    filter(primary_defender == player2) |> 
+    pull(defender_position) |> 
+    unique()
+  
+  # Get team for each player
+  player1_team <- player_info |> 
+    filter(primary_defender == player1) |> 
+    pull(defensive_team) |> 
+    unique()
+  
+  player2_team <- player_info |> 
+    filter(primary_defender == player2) |> 
+    pull(defensive_team) |> 
+    unique()
+  
+  # Set default title if not provided, now with player positions
+  if (is.null(title)) {
+    title <- paste0(
+      player1, " (", player1_position, ", ", player1_team, ", ", foul_count1, " fouls) vs ", 
+      player2, " (", player2_position, ", ", player2_team, ", ", foul_count2, " fouls)"
+    )
+  }
+  
+  # Create player labels with positions for use in subtitle
+  player1_label <- paste0(player1, " (", player1_position, ")")
+  player2_label <- paste0(player2, " (", player2_position, ")")
+  
+  # Add the defensive team to the title if specified and not already in the title
+  if (!is.null(defensive_team) && is.null(title)) {
+    title <- paste0(
+      title, " [", defensive_team, " vs ", offensive_team, "]"
+    )
+  }
+  
+  # Create prediction data for the two players
+  comparison_data <- player_info |>
+    # Create data grid with specified combinations
+    crossing(
+      defender_foul_count = c(foul_count1, foul_count2),
+      shot_movement = shot_movements_to_use,
+      shot_zone = shot_zones_to_use,
+      offensive_team = offensive_team  # Use the specified offensive team
+    ) |>
+    mutate(shots_defended_total = 100) |> 
+    add_predicted_draws(model, ndraws = ndraws)
+  
+  # Define player-foul combinations for identification
+  player1_combo <- paste0(player1, " (", player1_position, ", ", foul_count1, " fouls)")
+  player2_combo <- paste0(player2, " (", player2_position, ", ", foul_count2, " fouls)")
+  
+  # Create a composite identifier for each player-foul combination
+  comparison_data <- comparison_data |>
+    mutate(player_foul_combo = case_when(
+      primary_defender == player1 & defender_foul_count == foul_count1 ~ player1_combo,
+      primary_defender == player2 & defender_foul_count == foul_count2 ~ player2_combo,
+      TRUE ~ "other"  # Should never happen given the filtering below
+    ))
+  
+  # Filter to only the combinations we care about and keep draw information
+  comparison_filtered <- comparison_data |>
+    filter(
+      (primary_defender == player1 & defender_foul_count == foul_count1) |
+      (primary_defender == player2 & defender_foul_count == foul_count2)
+    )
+  
+  # Calculate summary statistics for display
+  comparison_summary <- comparison_filtered |>
+    group_by(player_foul_combo, shot_movement, shot_zone) |>
+    summarize(
+      mean_prediction = mean(.prediction),
+      lower_bound = quantile(.prediction, 0.025),
+      upper_bound = quantile(.prediction, 0.975),
+      .groups = "drop"
+    )
+  
+  # For uncertainty calculations, we need to process at the draw level
+  difference_by_draw <- comparison_filtered |>
+    # Select only the columns we need
+    select(player_foul_combo, shot_movement, shot_zone, .draw, .prediction) |>
+    # Reshape to wide format to calculate differences within each draw
+    pivot_wider(
+      id_cols = c(shot_movement, shot_zone, .draw),
+      names_from = player_foul_combo,
+      values_from = .prediction
+    ) |>
+    # Calculate the difference for each draw
+    mutate(diff = .data[[player1_combo]] - .data[[player2_combo]])
+  
+  # Now summarize the differences
+  difference_summary <- difference_by_draw |>
+    group_by(shot_movement, shot_zone) |>
+    summarize(
+      mean_diff = mean(diff),
+      diff_lower_ci = quantile(diff, 0.025),
+      diff_upper_ci = quantile(diff, 0.975),
+      # Calculate probability of player1 being better (negative diff = better defense)
+      prob_player1_better = mean(diff < 0),
+      # Confidence in the direction of the effect (how far from 50-50)
+      confidence = 2 * abs(prob_player1_better - 0.5),
+      # Is the effect "significant" (CI doesn't cross zero)
+      is_significant = (diff_lower_ci < 0 & diff_upper_ci < 0) | (diff_lower_ci > 0 & diff_upper_ci > 0),
+      .groups = "drop"
+    )
+  
+  # Create the heatmap
+  matchup_info <- if(!is.null(defensive_team)) {
+    paste0(defensive_team, " defense vs ", offensive_team, " offense")
+  } else {
+    paste0("Against ", offensive_team, " offense")
+  }
+  
+  # Determine what text to show based on uncertainty preference
+  if (show_uncertainty) {
+    # With confidence intervals
+    text_labels <- sprintf("%.2f\n[%.2f, %.2f]", 
+                          difference_summary$mean_diff, 
+                          difference_summary$diff_lower_ci,
+                          difference_summary$diff_upper_ci)
+    subtitle_text <- paste0(
+      "Green = ", player1_label, " (", foul_count1, " fouls) allows fewer makes\n",
+      "Purple = ", player2_label, " (", foul_count2, " fouls) allows fewer makes\n",
+      "Values show mean difference with 95% confidence intervals\n",
+      matchup_info
+    )
+  } else {
+    # Just the mean difference
+    text_labels <- sprintf("%.3f", difference_summary$mean_diff)
+    subtitle_text <- paste0(
+      "Green = ", player1_label, " (", foul_count1, " fouls) allows fewer makes\n",
+      "Purple = ", player2_label, " (", foul_count2, " fouls) allows fewer makes\n",
+      matchup_info
+    )
+  }
+  
+  # Create the heatmap
+  comp_heatmap <- ggplot(difference_summary, aes(x = shot_zone, y = shot_movement, fill = mean_diff)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    # Use a diverging color scale centered at 0
+    scale_fill_gradient2(
+      low = "green",    # Player 1 better (negative diff)
+      mid = "white",
+      high = "purple",  # Player 2 better (positive diff)
+      midpoint = 0,
+      name = "Difference"
+    ) +
+    # Add values to tiles with transparency based on confidence
+    geom_text(
+      aes(
+        label = text_labels,
+        alpha = confidence,  # More confident = more opaque
+        color = ifelse(abs(mean_diff) > 0.02, ifelse(mean_diff < 0, "white", "white"), "black"),
+        fontface = ifelse(is_significant, "bold", "plain")  # Bold for significant effects
+      ),
+      size = if(show_uncertainty) 2.5 else 3
+    ) +
+    # Set scales for text appearance
+    scale_color_identity() +
+    scale_alpha_continuous(
+      range = c(0.4, 1),
+      name = "Confidence"
+    ) +
+    # Labels
+    labs(
+      title = title,
+      subtitle = subtitle_text,
+      x = "Shot Zone",
+      y = "Shot Movement"
+    ) +
+    # Formatting
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(size = 14, face = "bold"),
+      panel.grid.major = element_blank(),
+      legend.position = "right"
+    )
+  
+  return(comp_heatmap)
+}
+
+# Example usage: Compare a top player with 0 fouls to the same player with 5 fouls
+player_self_comparison <- compare_players_heatmap(
+  player1 = top_players[1],
+  player2 = top_players[1],
+  foul_count1 = "0", 
+  foul_count2 = "5",
+  offensive_team = "BOS",  # Boston as the offensive team
+  defensive_team = "OKC",  # OKC as the defensive team
+  show_uncertainty = TRUE  # Show confidence intervals
+)
+
+# Display and save the self-comparison
+player_self_comparison
+ggsave(here("07_model-analysis", paste0("OKC_", gsub(" ", "_", top_players[1]), "_vs_BOS_with_CI.png")), 
+       player_self_comparison, width = 12, height = 8, dpi = 300)
+
+# Example with no uncertainty display
+player_self_comparison_simple <- compare_players_heatmap(
+  player1 = top_players[1],
+  player2 = top_players[1],
+  foul_count1 = "0", 
+  foul_count2 = "5",
+  offensive_team = "PHI",  
+  defensive_team = "OKC",  
+  show_uncertainty = FALSE  # Don't show confidence intervals
+)
+
+# Display and save the simplified version
+player_self_comparison_simple
+ggsave(here("07_model-analysis", paste0("OKC_", gsub(" ", "_", top_players[1]), "_vs_PHI_simple.png")), 
+       player_self_comparison_simple, width = 12, height = 8, dpi = 300)
+
+# Example usage: Compare two different players from different teams with the same foul count
+player_vs_player <- compare_players_heatmap(
+  player1 = "Draymond Green",
+  player2 = "Bam Adebayo",
+  foul_count1 = "0", 
+  foul_count2 = "5",
+  offensive_team = "DEN",  # Denver as the offensive team
+  show_uncertainty = TRUE  # Show confidence intervals
+)
+
+# Display and save the player-vs-player comparison
+player_vs_player
+ggsave(here("07_model-analysis", "Draymond_Green_vs_Bam_Adebayo_defense_with_CI.png"), 
+       player_vs_player, width = 12, height = 8, dpi = 300)
+
+# Example usage: Compare stars from rival teams in the finals
+finals_comparison <- compare_players_heatmap(
+  player1 = "Jayson Tatum",
+  player2 = "Stephen Curry",
+  foul_count1 = "5", 
+  foul_count2 = "5",
+  offensive_team = "LAL",  # Lakers as the offensive team
+  show_uncertainty = TRUE  # Show confidence intervals
+)
+
+# Display and save the finals comparison
+finals_comparison
+ggsave(here("07_model-analysis", "Tatum_vs_Curry_defense_with_CI.png"), 
+       finals_comparison, width = 12, height = 8, dpi = 300)
+
+dg_em <- compare_players_heatmap(
+  player1 = "Jarrett Allen",
+  player2 = "Jarrett Allen",
+  foul_count1 = "4", 
+  foul_count2 = "5",
+  offensive_team = "MIL",  # Lakers as the offensive team
+  show_uncertainty = TRUE  # Show confidence intervals
+)
+
+# Display and save the finals comparison
+dg_em
+
+```
+
+```{r}
+model |>
+  gather_draws(bsp_modefender_foul_count) |>
+  ggplot(aes(x = .value)) +
+  stat_halfeye(fill = "skyblue", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Global Effect of Increasing Foul Counts on Shot Success",
+       subtitle = "Slightly negative effect with uncertainty spanning zero",
+       x = "Effect Size (log-odds)",
+       y = "Density") +
+  theme_minimal()
+
+ggsave(here("07_model-analysis", "07-01_figures", "global_foul_effect.png"), width = 8, height = 6, dpi = 300)
+
+# Visualize the monotonic simplex parameters
+model |>
+  gather_draws(simo_modefender_foul_count1[i]) |>
+  mutate(foul_transition = paste0(i-1, " to ", i)) |>
+  mutate(foul_transition = factor(foul_transition, 
+                               levels = c("0 to 1", "1 to 2", "2 to 3", "3 to 4", "4 to 5"))) |>
+  ggplot(aes(y = foul_transition, x = .value)) +
+  stat_halfeye(fill = "skyblue", alpha = 0.7) +
+  labs(title = "Monotonic Steps Between Foul Count Levels",
+       subtitle = "Largest effects occur at high foul counts (3-4 and 4-5)",
+       x = "Step Size",
+       y = "Foul Transition") +
+  theme_minimal()
+
+ggsave(here("07_model-analysis", "07-01_figures", "monotonic_foul_steps.png"), width = 8, height = 6, dpi = 300)
+
+# Visualize group-level variation
+# Extract SD parameters for all group-level effects
+group_sds <- model |>
+  gather_draws(sd_shot_zone__Intercept, 
+               sd_shot_movement__Intercept,
+               sd_defensive_team__Intercept,
+               sd_offensive_team__Intercept,
+               sd_defender_position__Intercept,
+               sd_primary_defender__Intercept,
+               sd_shot_zone__modefender_foul_count, 
+               sd_shot_movement__modefender_foul_count,
+               sd_defensive_team__modefender_foul_count,
+               sd_defender_position__modefender_foul_count,
+               sd_primary_defender__modefender_foul_count) |>
+  # Extract grouping variable from parameter name
+  mutate(
+    param_type = ifelse(str_detect(.variable, "Intercept"), "Baseline", "Foul Effect"),
+    group = str_remove(.variable, "sd_"),
+    group = str_remove(group, "__Intercept"),
+    group = str_remove(group, "__modefender_foul_count")
+  )
+
+# Plot group-level SDs
+group_sds |>
+  ggplot(aes(y = reorder(group, .value, median), x = .value, fill = param_type, color = param_type)) +
+  stat_halfeye(alpha = 0.7) +
+  labs(title = "Variation in Group-Level Effects",
+       subtitle = "Shot zone exhibits the largest variability in baseline success rates",
+       x = "Standard Deviation",
+       y = "Grouping Variable",
+       color = "Parameter Type") +
+  xlim(0, 2.5) +
+  theme_minimal() +
+  guides(fill = "none")
+
+ggsave(here("07_model-analysis", "07-01_figures", "group_level_variation.png"), width = 10, height = 8, dpi = 300)
+
+# Visualize correlations between intercepts and slopes
+correlation_plot <- model |>
+  gather_draws(cor_shot_movement__Intercept__modefender_foul_count,
+               cor_shot_zone__Intercept__modefender_foul_count,
+               cor_defensive_team__Intercept__modefender_foul_count,
+               cor_defender_position__Intercept__modefender_foul_count,
+               cor_primary_defender__Intercept__modefender_foul_count) |>
+  mutate(
+    group = str_remove(.variable, "cor_"),
+    group = str_remove(group, "__Intercept__modefender_foul_count")
+  ) |>
+  ggplot(aes(y = reorder(group, .value, median), x = .value)) +
+  stat_halfeye(fill = "orchid", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  labs(title = "Correlation Between Baseline Effects and Foul Effects",
+       subtitle = "Shot movement shows positive correlation, defensive teams show slight negative correlation",
+       x = "Correlation",
+       y = "Grouping Variable") +
+  theme_minimal()
+
+ggsave(here("07_model-analysis", "07-01_figures", "intercept_slope_correlations.png"), width = 10, height = 8, dpi = 300)
+
+# Combine key visualizations for the report
+library(patchwork)
+
+# Global effect and monotonic steps
+foul_effects_combined <- model |>
+  gather_draws(bsp_modefender_foul_count) |>
+  ggplot(aes(x = .value)) +
+  stat_halfeye(fill = "skyblue", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Global Foul Effect",
+       subtitle = "Effect spans zero",
+       x = "Effect Size (log-odds)",
+       y = "Density") +
+  theme_minimal() +
+  
+  model |>
+  gather_draws(simo_modefender_foul_count1[i]) |>
+  mutate(foul_transition = paste0(i-1, " to ", i)) |>
+  mutate(foul_transition = factor(foul_transition, 
+                               levels = c("0 to 1", "1 to 2", "2 to 3", "3 to 4", "4 to 5"))) |>
+  ggplot(aes(y = foul_transition, x = .value)) +
+  stat_halfeye(fill = "lightgreen", alpha = 0.7) +
+  labs(title = "Monotonic Steps",
+       subtitle = "Largest at high foul counts",
+       x = "Step Size",
+       y = "") +
+  theme_minimal()
+
+# Save the combined visualization
+combined_report_viz <- (foul_effects_combined / correlation_plot) + 
+  plot_annotation(
+    title = "Key Findings: Defender Foul Effects on Shot Success",
+    theme = theme(plot.title = element_text(size = 16, face = "bold"))
+  )
+
+ggsave(here("07_model-analysis", "07-01_figures", "report_key_findings.png"), 
+       combined_report_viz, width = 12, height = 10, dpi = 300)
 ```

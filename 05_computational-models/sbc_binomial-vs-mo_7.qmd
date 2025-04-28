@@ -4,12 +4,10 @@ library(brms)
 library(SBC)
 library(tidybayes)
 library(loo)
-source(here::here("00_R", "simulate_shots_3.R"))
-source(here::here("00_R", "analyze_players.R"))
-
+source(here::here("00_R", "simulate_shots_2.R"))
 ```
 
-This creates a simulated dataset with 1,296 total observations.
+This creates a simulated dataset with 1,296 total observations (small_sim) and 6928 observations (big_sim)
 
 ```{r}
 small_sim_factor <- simulate_shots(n_observations = 150, n_defenders = 50, n_teams = 5, foul_count_transform = "ordered")
@@ -20,6 +18,10 @@ small_sim_unsummarized <- simulate_shots(n_observations = 150, n_defenders = 50,
 
 big_sim_unsummarized <- simulate_shots(n_observations = 2000, n_defenders = 50, n_teams = 5,  foul_count_transform = "ordered", summarize_data = "FALSE")
 
+
+bigger_sim_factor <- simulate_shots(n_observations = 2000, n_defenders = 100, n_teams = 10, foul_count_transform = "ordered", seed = 145)
+
+bigger_sim_factor |> select(defender_foul_count) |> group_by(defender_foul_count) |> count()
 
 ```
 

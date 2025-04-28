@@ -102,7 +102,16 @@ simulate_shots <- function(
       ),
       
       # Defenders with lower skill tend to foul more
-      defender_foul_count = pmin(5, pmax(0, round(rpois(n(), lambda = max(0, 2 - defensive_skill + position_foul_effect)))))
+      # Generate raw foul values using a gamma distribution, in line with the findings in Chu and Swartz (2020)
+      raw_fouls = floor(rgamma(n(), 
+                         shape = 0.7, 
+                         scale = max(0.4, 0.8 - defensive_skill + position_foul_effect * 0.25))),
+      
+      # This is a bit hacky, but essentially we 
+      defender_foul_count = case_when(
+        raw_fouls > 5 ~ sample(3:5, n(), replace = TRUE, prob = c(0.5, 0.35, 0.15)),
+        TRUE ~ raw_fouls
+      )
     ) |>
     ungroup()
   
