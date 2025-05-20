@@ -1605,9 +1605,6 @@ correlation_plot <- model |>
 
 ggsave(here("07_model-analysis", "07-01_figures", "intercept_slope_correlations.png"), width = 10, height = 8, dpi = 300)
 
-# Combine key visualizations for the report
-library(patchwork)
-
 # Global effect and monotonic steps
 foul_effects_combined <- model |>
   gather_draws(bsp_modefender_foul_count) |>
@@ -1643,3 +1640,68 @@ combined_report_viz <- (foul_effects_combined / correlation_plot) +
 ggsave(here("07_model-analysis", "07-01_figures", "report_key_findings.png"), 
        combined_report_viz, width = 12, height = 10, dpi = 300)
 ```
+
+Knicks Plot
+
+```{r}
+# Plot using the original data but order teams based on medians
+mo_def_foul_plot <- model |>
+  gather_draws(r_defensive_team[defensive_team,term]) |> 
+  filter(term == "modefender_foul_count") |> 
+  mutate(defensive_team = factor(defensive_team, 
+                               levels = mo_def_foul_order_data |> 
+                                 filter(term == term[1]) |> 
+                                 arrange(median_value) |> 
+                                 pull(defensive_team)),
+         # Create a highlight variable
+         is_nyk = ifelse(defensive_team == "NYK", "NYK", "Other Teams")) |>
+  ggplot(aes(y = defensive_team, x = .value, fill = is_nyk)) + 
+  stat_halfeye(alpha = 0.8) +
+  # Add the dashed line at x=0
+  geom_vline(xintercept = 0, linetype = "dashed", color = "light blue", alpha = 0.7) +
+  scale_fill_manual(values = c("NYK" = "#F58426", "Other Teams" = "gray80")) +
+  labs(title = "Effect of fouls on\nopponent shotmaking percentage",
+       y = NULL,
+       x = NULL) +
+  theme(legend.position = "none")  # Remove the legend
+  
+# Get median values for each team and term combination
+team_order_data <- model |>
+  gather_draws(r_defensive_team[defensive_team,term]) |> 
+  filter(term == "Intercept") |> 
+  group_by(defensive_team, term) |>
+  summarise(median_value = median(.value), .groups = "drop")
+
+# Plot using the original data but order teams based on medians
+team_plot <- model |>
+  gather_draws(r_defensive_team[defensive_team,term]) |> 
+  filter(term == "Intercept") |> 
+  mutate(defensive_team = factor(defensive_team, 
+                               levels = team_order_data |> 
+                                 filter(term == term[1]) |> 
+                                 arrange(median_value) |> 
+                                 pull(defensive_team)),
+  is_nyk = ifelse(defensive_team == "NYK", "NYK", "Other Teams")) |>
+  ggplot(aes(y = defensive_team, x = .value, fill = is_nyk)) + 
+  stat_halfeye(alpha = 0.8) +
+  # Add the dashed line at x=0
+  geom_vline(xintercept = 0, linetype = "dashed", color = "light blue", alpha = 0.7) +
+  scale_fill_manual(values = c("NYK" = "#F58426", "Other Teams" = "gray80")) +
+  labs(title = "Team defense effect on\nopponent shotmaking percentage",
+       y = "Defensive Team",
+       x = NULL) +
+  theme(legend.position = "none")  # Remove the legend
+
+knicks_bisect_plot <- team_plot | mo_def_foul_plot + 
+  plot_annotation(
+    caption = "x-axis: Posterior distribution of effect size (percentage points). 
+    Positive values indicate teams allowing higher shotmaking percentages.",
+    theme = theme(plot.caption = element_text(hjust = 0, size = 9))  # Left-align and set size
+  )
+
+knicks_bisect_plot
+
+ggsave(here("07_model-analysis", "07-01_figures", "knicks_bisect_plot.png"), 
+       knicks_bisect_plot, width = 12, height = 10, dpi = 300)
+```
+
